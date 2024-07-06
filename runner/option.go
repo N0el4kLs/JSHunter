@@ -43,6 +43,9 @@ type Options struct {
 	// Ai source to use
 	AiSource string
 
+	// headless
+	IsHeadless bool
+
 	// Output
 	Output string
 
@@ -65,7 +68,7 @@ func ParseOptions() (*Options, error) {
 	)
 
 	flagSet.CreateGroup("options", "OPTIONS",
-		flagSet.BoolVar(&options.IsCheckAll, "ac", true, "Check both endpoints and vue paths"),
+		flagSet.BoolVar(&options.IsCheckAll, "ac", false, "Check both endpoints and vue paths"),
 		flagSet.BoolVar(&options.IsEndpointCheck, "ec", false, "Check for endpoints"),
 		flagSet.BoolVar(&options.IsVuePathCheck, "vc", false, "Check for vue paths"),
 		flagSet.StringVar(&options.AiSource, "ai", "gemini",
@@ -82,6 +85,7 @@ func ParseOptions() (*Options, error) {
 
 	flagSet.CreateGroup("debug", "DEBUG",
 		flagSet.BoolVar(&options.IsDebug, "debug", false, "Enable debug mode"),
+		flagSet.BoolVar(&options.IsHeadless, "headless", false, "enable headless browser while running"),
 	)
 
 	if err := flagSet.Parse(); err != nil {
@@ -96,6 +100,10 @@ func ParseOptions() (*Options, error) {
 
 	if options.URLFile == "" && options.URL == "" {
 		return nil, errors.New("please provide a URL or a file containing URLs")
+	}
+
+	if !(options.IsCheckAll || options.IsVuePathCheck || options.IsCheckAll) {
+		return nil, errors.New("must choose a scan type")
 	}
 
 	if strings.ToLower(options.AiSource) == strings.ToLower(gemini.GEMINI) {
