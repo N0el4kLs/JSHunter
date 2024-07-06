@@ -13,7 +13,7 @@ type Writer struct {
 	//outputFile io.WriteCloser
 }
 
-func (w *Writer) StdWriter(rst types.Result) {
+func (w *Writer) DefaultWriter(rst types.Result) {
 	// Write data to output
 	var builder strings.Builder
 

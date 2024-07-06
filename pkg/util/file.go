@@ -13,6 +13,7 @@ func LoadTargets(path string) ([]string, error) {
 	}
 	reader, _ := os.Open(path)
 	defer reader.Close()
+
 	rScanner := bufio.NewScanner(reader)
 	rScanner.Split(bufio.ScanLines)
 	for rScanner.Scan() {

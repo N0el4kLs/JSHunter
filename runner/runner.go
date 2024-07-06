@@ -30,28 +30,32 @@ type Runner struct {
 	// URLs
 	URLs []string
 
+	// AIEngine which ai source will be used for helping to analyze
 	AIEngine llm.AIProvider
 
 	// MaxGoroutines to limit the max number of URLs while handling
 	MaxGoroutines *sizedwaitgroup.SizedWaitGroup
 
-	// output channel
+	// outChannel all result should send to this channel
 	outChannel chan types.Result
 
-	// writer
+	// outputOver sign that output process is over
+	outputOver chan struct{}
+
+	// writer retrieve the results from outChannel and handle them with different option
 	writer *writer.Writer
 
-	// extractors all regexp extract Operations to match detail needed inform
+	// extractors all regexp extract operations to match detail and needed inform from front-end page
 	extractors []extracter.Extracter
 
-	// crawlerEngine is chromium engine for checking vue path
+	// crawlerEngine is chromium engine for checking broken access vue path
 	crawlerEngine *headless.Crawler
 
-	// vueTaskChan vue path check task channel
-	vueTaskChan chan *headless.Task
+	// endpointTaskChan endpoint check task queue
+	endpointTaskChan chan string
 
-	// vueTaskEndSignChan
-	vueTaskEndSignChan chan struct{}
+	// vueTaskChan vue path check task queue
+	vueTaskChan chan *headless.Task
 
 	// processWg endpoint and vue check task wait group to end the process
 	processWg sync.WaitGroup
@@ -64,10 +68,6 @@ func NewRunner(option *Options) (*Runner, error) {
 
 	// load target(s) from CLI or file
 	if option.URL != "" {
-		// Two test urls
-		// https://cloudvse.com/login
-		// https://studiosansa.se/login
-
 		// Google hacking grammar:
 		// intext:"without JavaScript enabled. Please enable it to continue." inurl:"login"
 		runner.URLs = append(runner.URLs, option.URL)
@@ -82,7 +82,7 @@ func NewRunner(option *Options) (*Runner, error) {
 	}
 
 	if option.IsCheckAll || option.IsEndpointCheck {
-		// Todo init ai source engine
+		// Todo When you add new ai source engines, add new "case" condition to init ai engine
 		switch option.AiSource {
 		case gemini.GEMINI:
 			runner.AIEngine = gemini.Provider{}
@@ -103,6 +103,10 @@ func NewRunner(option *Options) (*Runner, error) {
 		runner.vueTaskChan = make(chan *headless.Task, 30)
 	}
 
+	if option.IsEndpointCheck || option.IsCheckAll {
+		runner.endpointTaskChan = make(chan string)
+	}
+
 	// Max goroutines to handle urls
 	sw := sizedwaitgroup.New(30)
 	runner.MaxGoroutines = &sw
@@ -110,50 +114,52 @@ func NewRunner(option *Options) (*Runner, error) {
 
 	runner.writer = &writer.Writer{}
 	runner.processWg = sync.WaitGroup{}
-	runner.processWg.Add(2)
 
 	return runner, nil
 }
 
 func (r *Runner) Run() error {
+	// start result handle process
 	go func() {
+		defer func() {
+			r.outputOver <- struct{}{}
+		}()
+
 		for rst := range r.outChannel {
-			// Todo use writer to handle rst
-			r.writer.StdWriter(rst)
+			r.writer.DefaultWriter(rst)
 		}
 	}()
 
+	// start corresponding job
 	if r.vueTaskChan != nil {
-		// Todo handle vue max worker control
-		go r.runVueCheck("")
+		r.processWg.Add(1)
+
+		go r.runVueCheck()
+	}
+
+	if r.endpointTaskChan != nil {
+		r.processWg.Add(1)
+
+		go r.checkEndpoint()
 	}
 
 	for _, u := range r.URLs {
+		// Todo there is problem that endpoint has two analysis method, regexp and ai source
+		// In this condition, judge ai source only, need improve later
 		if r.AIEngine != nil {
-			r.MaxGoroutines.Add()
-			go r.runEnumerate(u)
+			r.endpointTaskChan <- u
 		}
-
-		//if r.vueTaskChan != nil {
-		//	// Todo handle vue max worker control
-		//	go r.runVueCheck(u)
-		//}
 
 		if r.vueTaskChan != nil {
 			t := headless.NewTask(u)
 			r.vueTaskChan <- t
 		}
-
 	}
-	close(r.vueTaskChan)
 
-	// wait all goroutine done
-	go func() {
-		r.MaxGoroutines.Wait()
-		r.processWg.Done()
-		gologger.Debug().Msgf("Endpoint task done.")
-	}()
+	// producer is over
+	r.closeTaskQueue()
 
+	// wait vue path check process and endpoint check process done
 	r.processWg.Wait()
 	r.Close()
 
@@ -162,12 +168,23 @@ func (r *Runner) Run() error {
 
 func (r *Runner) Close() {
 	close(r.outChannel)
+	<-r.outputOver
 }
 
-func (r *Runner) runEnumerate(u string) {
+// closeTaskQueue
+func (r *Runner) closeTaskQueue() {
+	if r.endpointTaskChan != nil {
+		close(r.endpointTaskChan)
+	}
+	if r.vueTaskChan != nil {
+		close(r.vueTaskChan)
+	}
+}
+
+func (r *Runner) runEndpointCheck(u string) {
 	defer r.MaxGoroutines.Done()
 
-	// 1. check connection
+	// 1. check target connection
 	reqClient := httpx.NewGetClient(r.options.Proxy, 10)
 	resp, err := reqClient.DoRequest(u)
 	if err != nil || resp.StatusCode == 404 {
@@ -175,9 +192,10 @@ func (r *Runner) runEnumerate(u string) {
 		return
 	}
 
-	// Todo 2. analyze js type: jquery or webpack
+	// Todo 2. choose corresponding extractor to analyze javascript file
+	// ajax or webpack
 
-	// 3. find available js paths
+	// 3. find available js paths and extract javascript
 	// Todo haven't consider if the javascript path is a completed URL
 	jsPaths := analyze.ParseJS(resp.String(), resp.Body)
 
@@ -235,7 +253,7 @@ func (r *Runner) runEnumerate(u string) {
 		jsURIs = append(jsURIs, baseURL+jsPath)
 	}
 
-	// 3. find endpoints
+	// 4. find endpoints from javascript file and
 	var endpoints []string
 	for _, jsUrl := range jsURIs {
 		resp, err = reqClient.DoRequest(jsUrl)
@@ -282,10 +300,9 @@ func (r *Runner) runEnumerate(u string) {
 			Response: resp.Response,
 		}
 	}
-
 }
 
-func (r *Runner) runVueCheck(u string) {
+func (r *Runner) runVueCheck() {
 	defer func() {
 		r.processWg.Done()
 		gologger.Debug().Msgf("Vue path task done.")
@@ -310,9 +327,18 @@ func (r *Runner) runVueCheck(u string) {
 		}
 		page.MustClose()
 	}
-
 }
 
-func (r *Runner) checkEndpoint(ep types.EndPoint) {
+func (r *Runner) checkEndpoint() {
+	defer func() {
+		r.processWg.Done()
+		gologger.Debug().Msgf("Endpoint task done.")
+	}()
 
+	for endpointCheckTask := range r.endpointTaskChan {
+		r.MaxGoroutines.Add()
+		go r.runEndpointCheck(endpointCheckTask)
+	}
+
+	r.MaxGoroutines.Wait()
 }

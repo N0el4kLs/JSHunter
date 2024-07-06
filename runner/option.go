@@ -28,30 +28,30 @@ type Options struct {
 	// IsVuePathCheck is a flag to check vue paths
 	IsVuePathCheck bool
 
-	// Proxy to use for the requests
+	// Proxy to use for the request client
 	Proxy string
 
-	// Timeout for the requests
+	// Timeout for the request client
 	Timeout int
 
 	// Threads
 	Threads int
 
-	// Headers
+	// Headers for request client
 	Headers string
 
 	// Ai source to use
 	AiSource string
 
-	// headless
-	IsHeadless bool
-
 	// Output
 	Output string
 
 	// Debug option
-	// IsDebug
+	// IsDebug set log level to debug
 	IsDebug bool
+
+	// IsHeadless enable headless browser or log
+	IsHeadless bool
 }
 
 func ParseOptions() (*Options, error) {
