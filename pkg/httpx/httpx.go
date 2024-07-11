@@ -38,10 +38,6 @@ type Client struct {
 
 	// Headers for http request
 	Headers map[string]string
-
-	// Todo This attribute is used for endpoint only
-	// use another for set request url later
-	url string
 }
 
 // NewClient returns a new http client
@@ -80,18 +76,14 @@ func NewPostClient(proxy string, timeout int) *Client {
 }
 
 // DoRequest do http request with corresponding method
-func (c *Client) DoRequest(u ...string) (*Response, error) {
+func (c *Client) DoRequest(u string) (*Response, error) {
 	var (
 		url_     string // use _ to avoid collide with imported package name
 		response Response
 		resp     *req.Response
 		err      error
 	)
-	if len(u) == 0 {
-		url_ = c.url
-	} else {
-		url_ = u[0]
-	}
+	url_ = u
 
 	c.Request.SetRetryCount(c.MaxRedirect).
 		SetRetryBackoffInterval(1*time.Second, 5*time.Second).
@@ -135,13 +127,6 @@ func (c *Client) SetPostBody(body interface{}) *Client {
 		c.SetHeader("Content-Type", "application/x-www-form-urlencoded")
 	}
 	c.Request.SetBody(body)
-	return c
-}
-
-// SetEndpointURL this function is used for set endpoint only
-// Todo use another way to set endpoint url later
-func (c *Client) SetEndpointURL(u string) *Client {
-	c.url = u
 	return c
 }
 

@@ -43,6 +43,9 @@ type Options struct {
 	// Ai source to use
 	AiSource string
 
+	// dot env file that contain ai source authentication key
+	EnvPath string
+
 	// Output
 	Output string
 
@@ -58,7 +61,6 @@ func ParseOptions() (*Options, error) {
 	ShowBanner()
 
 	options := &Options{}
-
 	flagSet := goflags.NewFlagSet()
 	flagSet.SetDescription("A tool to find vulnerabilities in javascript files")
 
@@ -71,17 +73,18 @@ func ParseOptions() (*Options, error) {
 		flagSet.BoolVar(&options.IsCheckAll, "ac", false, "Check both endpoints and vue paths"),
 		flagSet.BoolVar(&options.IsEndpointCheck, "ec", false, "Check for endpoints"),
 		flagSet.BoolVar(&options.IsVuePathCheck, "vc", false, "Check for vue paths"),
-		flagSet.StringVar(&options.AiSource, "ai", "gemini",
-			"AI source to use for extracting endpoints.Only support gemini and gpt3 for now. Default is gemini."),
-		flagSet.StringVarP(&options.Proxy, "proxy", "p", "", "Proxy to use for the requests"),
-		flagSet.IntVarP(&options.Timeout, "timeout", "t", 15, "Timeout in seconds for the requests"),
+		//flagSet.StringVar(&options.AiSource, "ai", "gemini",
+		//	"AI source to use for extracting endpoints.Only support gemini and gpt3 for now. Default is gemini."),
+		flagSet.StringVar(&options.EnvPath, "env", ".env", "dot env file that store necessary token"),
+		//flagSet.StringVarP(&options.Proxy, "proxy", "p", "", "Proxy to use for the requests"),
+		//flagSet.IntVarP(&options.Timeout, "timeout", "t", 15, "Timeout in seconds for the requests"),
 		flagSet.IntVarP(&options.Threads, "threads", "T", 50, "Number of threads to use for the scanner"),
-		flagSet.StringVarP(&options.Headers, "headers", "H", "", "Headers to use for the requests"),
+		//flagSet.StringVarP(&options.Headers, "headers", "H", "", "Headers to use for the requests"),
 	)
 
-	flagSet.CreateGroup("output", "OUTPUT",
-		flagSet.StringVarP(&options.Output, "output", "o", "", "File to write the output to"),
-	)
+	//flagSet.CreateGroup("output", "OUTPUT",
+	//	flagSet.StringVarP(&options.Output, "output", "o", "", "File to write the output to"),
+	//)
 
 	flagSet.CreateGroup("debug", "DEBUG",
 		flagSet.BoolVar(&options.IsDebug, "debug", false, "Enable debug mode"),
@@ -102,7 +105,7 @@ func ParseOptions() (*Options, error) {
 		return nil, errors.New("please provide a URL or a file containing URLs")
 	}
 
-	if !(options.IsCheckAll || options.IsVuePathCheck || options.IsCheckAll) {
+	if !(options.IsCheckAll || options.IsVuePathCheck || options.IsEndpointCheck) {
 		return nil, errors.New("must choose a scan type")
 	}
 

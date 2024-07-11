@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 
 	"js-hunter/pkg/types"
@@ -72,7 +71,6 @@ func NewCrawler(isHeadless bool) *Crawler {
 func (c *Crawler) RunHeadless(t *Task) (*Task, *rod.Page) {
 	defer func() {
 		// handle navigation failed: net::ERR_NAME_NOT_RESOLVED
-		// Todo handle this error with page options
 		if err := recover(); err != nil {
 			gologger.Error().Msgf("URL %s error: %s\n", t.URL, err)
 		}
@@ -276,60 +274,7 @@ func tokenizerURL(s string) (string, string) {
 	return baseURI, uriToken
 }
 
-// inStatistics is a function to check if current token is in statistics
-func inStatistics(s string, slice []*Statistic) bool {
-	for _, i := range slice {
-		if i.Token == s {
-			return true
-		}
-	}
-	return false
-}
-
-// tidyStatMap is a function to tidy statistics map
-// return ordered statistics slice
-func tidyStatMap(statMap map[TokenRemark]uint) []*Statistic {
-	var statistics []*Statistic
-
-	// find which token is the most
-	for k, v := range statMap {
-		stic := &Statistic{
-			Token: k.Token,
-			Count: int(v),
-		}
-		statistics = append(statistics, stic)
-	}
-	sort.SliceStable(statistics, func(i, j int) bool {
-		return statistics[i].Count < statistics[j].Count
-	})
-
-	// Todo debug for statistics, remove when release
-	for _, i := range statistics {
-		gologger.Debug().Label("statistics").
-			Msgf("Token %s, count %d\n", i.Token, i.Count)
-	}
-
-	return statistics
-}
-
 type TokenRemark struct {
 	TokenType bool   // true: with redirect, false: without redirect
 	Token     string // token string
-}
-
-// NewTokenRemark is a function to create a new token remark
-// if token is NO_REDIRECT, mark token as home href
-func NewTokenRemark(baseURI, token string) TokenRemark {
-	var (
-		tokenType   = false
-		tokenString = baseURI
-	)
-	if token != NO_REDIRECT {
-		tokenType = true
-		tokenString = token
-	}
-	return TokenRemark{
-		TokenType: tokenType,
-		Token:     tokenString,
-	}
 }

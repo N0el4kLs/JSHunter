@@ -15,11 +15,11 @@ import (
 	"js-hunter/pkg/httpx"
 	"js-hunter/pkg/llm"
 	"js-hunter/pkg/llm/gemini"
-	"js-hunter/pkg/llm/gpt"
 	"js-hunter/pkg/types"
 	"js-hunter/pkg/util"
 	"js-hunter/pkg/writer"
 
+	"github.com/joho/godotenv"
 	"github.com/projectdiscovery/gologger"
 	"github.com/remeh/sizedwaitgroup"
 )
@@ -82,12 +82,21 @@ func NewRunner(option *Options) (*Runner, error) {
 	}
 
 	if option.IsCheckAll || option.IsEndpointCheck {
+		err := godotenv.Load(option.EnvPath)
+		if err != nil {
+			return runner, fmt.Errorf("Error loading .env file: %v", err)
+		}
 		// Todo When you add new ai source engines, add new "case" condition to init ai engine
 		switch option.AiSource {
 		case gemini.GEMINI:
-			runner.AIEngine = gemini.Provider{}
-		case gpt.Gpt:
-			runner.AIEngine = gpt.Provider{}
+			gemini := gemini.Provider{}
+			err = gemini.Auth()
+			if err != nil {
+				return runner, err
+			}
+			runner.AIEngine = gemini
+			//case gpt.Gpt:
+			//	runner.AIEngine = gpt.Provider{}
 		}
 	}
 
@@ -111,6 +120,7 @@ func NewRunner(option *Options) (*Runner, error) {
 	sw := sizedwaitgroup.New(30)
 	runner.MaxGoroutines = &sw
 	runner.outChannel = make(chan types.Result)
+	runner.outputOver = make(chan struct{})
 
 	runner.writer = &writer.Writer{}
 	runner.processWg = sync.WaitGroup{}
@@ -123,6 +133,7 @@ func (r *Runner) Run() error {
 	go func() {
 		defer func() {
 			r.outputOver <- struct{}{}
+			gologger.Debug().Msgf("Output channel over.\n")
 		}()
 
 		for rst := range r.outChannel {
@@ -198,6 +209,7 @@ func (r *Runner) runEndpointCheck(u string) {
 	// 3. find available js paths and extract javascript
 	// Todo haven't consider if the javascript path is a completed URL
 	jsPaths := analyze.ParseJS(resp.String(), resp.Body)
+	gologger.Info().Msgf("Find %d Javascript file in %s \n", len(jsPaths), u)
 
 	var (
 		subPathLists []string
@@ -271,23 +283,19 @@ func (r *Runner) runEndpointCheck(u string) {
 		}
 	}
 
+	endpoints = util.UniqueSlice(endpoints)
 	// Todo somethings the input is too long, need optimize prompt or input
-	input := strings.Join(endpoints[len(endpoints)-20:], "\n")
+	input := strings.Join(endpoints, "\n")
 	if input == "" {
 		return
 	}
-	endpointsFromAI := r.AIEngine.Generate(input)
+	endpointsFromAI, err := r.AIEngine.Generate(input)
+	if err != nil {
+		gologger.Error().Msgf("%s\n", err)
+		return
+	}
 
-	//unqEndpoints := map[string]struct{}{}
-	// Todo Add goroutine to handle endpoint check
 	for _, ep := range endpointsFromAI {
-		// unique endpoint
-		//ep.SetHash()
-		//if _, ok := unqEndpoints[ep.Hash]; ok {
-		//	continue
-		//}
-		//unqEndpoints[ep.Hash] = struct{}{}
-
 		epClient := httpx.Endpoint2Client(ep)
 		epURI := baseURL + ep.Path
 		resp, err = epClient.DoRequest(epURI)
@@ -308,15 +316,10 @@ func (r *Runner) runVueCheck() {
 		gologger.Debug().Msgf("Vue path task done.")
 	}()
 
+	gologger.Info().Msgf("Start vue check...\n")
+
 	for vueCheckTask := range r.vueTaskChan {
 		rst, page := r.crawlerEngine.RunHeadless(vueCheckTask)
-		// Todo there is a problem that rst can never be nil
-		if rst == nil {
-			gologger.Debug().
-				Msgf("Get result from crawler engine failed,current task is %s\n", rst.URL)
-			page.MustClose()
-			continue
-		}
 
 		if len(rst.Subs) > 0 {
 			rs := headless.CategoryReqType(rst)
@@ -334,6 +337,8 @@ func (r *Runner) checkEndpoint() {
 		r.processWg.Done()
 		gologger.Debug().Msgf("Endpoint task done.")
 	}()
+
+	gologger.Info().Msgf("Start endpoint check...\n")
 
 	for endpointCheckTask := range r.endpointTaskChan {
 		r.MaxGoroutines.Add()

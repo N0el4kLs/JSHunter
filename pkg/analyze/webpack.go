@@ -71,7 +71,6 @@ func ParseJS(body string, bodyBytes io.Reader) []string {
 			gologger.Debug().Msgf("Link %d: href=%s\n", i, src)
 		}
 	})
-	gologger.Info().Msgf("Find %d JavaScript files...\n", len(jsPaths))
 
 	return jsPaths
 }

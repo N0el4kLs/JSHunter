@@ -6,7 +6,8 @@ import (
 
 type AIProvider interface {
 	Name() string
-	Generate(string) []types.EndPoint
+	Auth() error
+	Generate(string) ([]types.EndPoint, error)
 }
 
 type AIEngine struct {

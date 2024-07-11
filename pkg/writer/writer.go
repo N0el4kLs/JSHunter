@@ -18,7 +18,7 @@ func (w *Writer) DefaultWriter(rst types.Result) {
 	var builder strings.Builder
 
 	if rst.TypeOfRst&types.EndpointCheckType == types.EndpointCheckType {
-		builder.WriteString(rst.Response.Request.RawURL)
+		builder.WriteString(rst.Response.Request.URL.String())
 
 		builder.WriteString(" [")
 		builder.WriteString(rst.Response.Request.Method)
