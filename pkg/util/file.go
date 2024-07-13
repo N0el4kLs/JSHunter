@@ -2,7 +2,9 @@ package util
 
 import (
 	"bufio"
+	"net/url"
 	"os"
+	"strings"
 )
 
 func LoadTargets(path string) ([]string, error) {
@@ -34,4 +36,24 @@ func UniqueSlice(slice []string) []string {
 		}
 	}
 	return uniqueResult
+}
+
+func URL2FileName(u string) string {
+	uu, _ := url.Parse(u)
+	fileName := uu.Host
+	if strings.Contains(fileName, ":") {
+		fileName = strings.Replace(fileName, ":", "_", -1)
+	}
+	return fileName
+}
+
+func GetTemplateContent() string {
+	content := `## {{.URL}}
+### TABLE_OF_CONTENT
+{{.Toc}}
+
+### DETAIL
+{{.Detail}}
+`
+	return content
 }

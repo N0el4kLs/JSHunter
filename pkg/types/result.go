@@ -43,6 +43,12 @@ type InspectEndpointRst struct {
 type InspectVuePathRst struct {
 	// URI of the broken access vue path
 	URI string
+
+	// ParentURL which the current URI comes from
+	ParentURL string
+
+	// ScreenshotName the screenshot name of the current vue path
+	ScreenshotName string
 }
 
 func NewEdRst() Result {
@@ -54,9 +60,11 @@ func NewEdRst() Result {
 	}
 }
 
-func NewVuePathRst(u string) Result {
+func NewVuePathRst(parent, u, screenshot string) Result {
 	detail := InspectVuePathRst{
-		URI: u,
+		URI:            u,
+		ParentURL:      parent,
+		ScreenshotName: screenshot,
 	}
 
 	return Result{

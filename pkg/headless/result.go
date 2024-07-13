@@ -41,8 +41,8 @@ type VuePathDetail struct {
 	HomeHref      string        // home page href
 	Href          string        // window.location.href of endpoint
 	HrefToken     string        // token of window.location.href of endpoint
+	ParentURL     string        // where the URL comes from
 	Response      *req.Response // http response
-
 }
 
 // BrokenItem is a struct to store broken access information
@@ -88,6 +88,7 @@ func CategoryReqType(t *Task) *VueTargetInfo {
 				Body:          rsp.String(),
 				StatusCode:    rsp.StatusCode,
 				ContentLength: rsp.ContentLength,
+				ParentURL:     t.URL,
 			}
 			//gologger.Debug().Msgf("Get response content-length: %v\n", rsp.ContentLength)
 			doc, err := goquery.NewDocumentFromReader(rsp.Body)

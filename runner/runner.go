@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -68,8 +71,6 @@ func NewRunner(option *Options) (*Runner, error) {
 
 	// load target(s) from CLI or file
 	if option.URL != "" {
-		// Google hacking grammar:
-		// intext:"without JavaScript enabled. Please enable it to continue." inurl:"login"
 		runner.URLs = append(runner.URLs, option.URL)
 	}
 
@@ -122,7 +123,7 @@ func NewRunner(option *Options) (*Runner, error) {
 	runner.outChannel = make(chan types.Result)
 	runner.outputOver = make(chan struct{})
 
-	runner.writer = &writer.Writer{}
+	runner.writer = writer.NewWriter()
 	runner.processWg = sync.WaitGroup{}
 
 	return runner, nil
@@ -145,7 +146,7 @@ func (r *Runner) Run() error {
 	if r.vueTaskChan != nil {
 		r.processWg.Add(1)
 
-		go r.runVueCheck()
+		go r.runVuePathCheck()
 	}
 
 	if r.endpointTaskChan != nil {
@@ -180,6 +181,8 @@ func (r *Runner) Run() error {
 func (r *Runner) Close() {
 	close(r.outChannel)
 	<-r.outputOver
+	r.crawlerEngine.Close()
+	r.writer.Close()
 }
 
 // closeTaskQueue
@@ -310,20 +313,26 @@ func (r *Runner) runEndpointCheck(u string) {
 	}
 }
 
-func (r *Runner) runVueCheck() {
+func (r *Runner) runVuePathCheck() {
 	defer func() {
 		r.processWg.Done()
 		gologger.Debug().Msgf("Vue path task done.")
 	}()
 
-	gologger.Info().Msgf("Start vue check...\n")
+	gologger.Info().Msgf("Start vue path check...\n")
 
 	for vueCheckTask := range r.vueTaskChan {
 		rst, page := r.crawlerEngine.RunHeadless(vueCheckTask)
 
 		if len(rst.Subs) > 0 {
+			// create folder to save screenshot
+			folder := util.URL2FileName(rst.URL)
+			screenshotDir := filepath.Join("reports", "vue_reports", folder, "resources")
+			os.MkdirAll(screenshotDir, 0777)
+			ctx := context.WithValue(context.Background(), "screenshotLocation", screenshotDir)
+
 			rs := headless.CategoryReqType(rst)
-			rets := r.crawlerEngine.HtmlBrokenAnalysis(rs)
+			rets := r.crawlerEngine.HtmlBrokenAnalysis(ctx, rs)
 			for ret := range rets {
 				r.outChannel <- ret
 			}

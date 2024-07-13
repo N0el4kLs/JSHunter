@@ -1,10 +1,13 @@
 package headless
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"js-hunter/pkg/types"
 
@@ -19,6 +22,11 @@ const (
 	BLANKPAGE    = "about:blank"
 	REDIRECT     = "{REDIRECT}"
 	NO_REDIRECT  = "{NO_REDIRECT}"
+)
+
+var (
+	// COUNTER This number was used to generate unique screenshot file name.
+	COUNTER uint32 = 1
 )
 
 // Crawler is the headless engine for vue path broken access check
@@ -132,7 +140,7 @@ func (c *Crawler) RunHeadless(t *Task) (*Task, *rod.Page) {
 }
 
 // HtmlBrokenAnalysis is a function to analysis the html result
-func (c *Crawler) HtmlBrokenAnalysis(t *VueTargetInfo) chan types.Result {
+func (c *Crawler) HtmlBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan types.Result {
 	var (
 		vuePathRstChan = make(chan types.Result)
 	)
@@ -143,8 +151,7 @@ func (c *Crawler) HtmlBrokenAnalysis(t *VueTargetInfo) chan types.Result {
 		for _, htmlSub := range t.HtmlSubs {
 			c.wg.Add()
 
-			//go c.accessURL(htmlSub)
-			go c.accessURLWithChan(htmlSub, vuePathRstChan)
+			go c.accessURLWithChan(ctx, htmlSub, vuePathRstChan)
 		}
 
 		c.wg.Wait()
@@ -153,55 +160,25 @@ func (c *Crawler) HtmlBrokenAnalysis(t *VueTargetInfo) chan types.Result {
 	return vuePathRstChan
 }
 
-func (c *Crawler) accessURL(item *VuePathDetail) {
+func (c *Crawler) accessURLWithChan(ctx context.Context, item *VuePathDetail, rstChannel chan types.Result) {
 	defer c.wg.Done()
 
 	p := c.BrowserInstance.MustPage(item.URL).
-		MustWaitDOMStable().
-		MustWaitLoad()
+		MustWaitLoad().
+		MustWaitStable()
 
-	if err := p.WaitLoad(); err != nil {
-		gologger.Error().Msgf("Wait load url %s , error:%s\n",
-			item.URL,
-			err.Error(),
-		)
-	}
+	//defer p.MustClose()
 
-	href := p.MustEval(c.injectionJS["href"]).Str()
-	base, token := tokenizerURL(href)
-
-	item.Href = href
-	item.HrefToken = token
-	item.URL = base
-	p.MustClose()
-}
-
-func (c *Crawler) accessURLWithChan(item *VuePathDetail, rstChannel chan types.Result) {
-	defer c.wg.Done()
-
-	p := c.BrowserInstance.MustPage(item.URL).
-		MustWaitDOMStable().
-		MustWaitLoad()
-
-	defer p.MustClose()
-
-	if err := p.WaitLoad(); err != nil {
-		gologger.Error().Msgf("Wait load url %s , error:%s\n",
-			item.URL,
-			err.Error(),
-		)
-	}
-
+	screenshotFolder := ctx.Value("screenshotLocation").(string)
+	location := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
+	p.MustScreenshot(location)
+	atomic.AddUint32(&COUNTER, 1)
 	href := p.MustEval(c.injectionJS["href"]).Str()
 	base, token := tokenizerURL(href)
 	if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
-		rstChannel <- types.NewVuePathRst(href)
+		rstChannel <- types.NewVuePathRst(item.ParentURL, href, location)
 	}
-
-	//item.Href = href
-	//item.HrefToken = token
-	//item.URL = base
-
+	p.MustClose()
 }
 
 func (c *Crawler) Close() {
