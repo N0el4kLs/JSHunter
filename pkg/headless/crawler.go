@@ -2,12 +2,15 @@ package headless
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"js-hunter/pkg/types"
 
@@ -34,7 +37,8 @@ type Crawler struct {
 	BrowserInstance *rod.Browser
 	injectionJS     map[string]string
 
-	wg *sizedwaitgroup.SizedWaitGroup
+	wg   *sizedwaitgroup.SizedWaitGroup
+	lock sync.Mutex
 }
 
 // NewCrawler is the construct function of initializing
@@ -71,6 +75,7 @@ func NewCrawler(isHeadless bool) *Crawler {
 		BrowserInstance: browser,
 		injectionJS:     injections,
 		wg:              &wg,
+		lock:            sync.Mutex{},
 	}
 }
 
@@ -162,23 +167,31 @@ func (c *Crawler) HtmlBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan
 
 func (c *Crawler) accessURLWithChan(ctx context.Context, item *VuePathDetail, rstChannel chan types.Result) {
 	defer c.wg.Done()
+	p := c.BrowserInstance.MustPage()
+	defer p.MustClose()
 
-	p := c.BrowserInstance.MustPage(item.URL).
-		MustWaitLoad().
-		MustWaitStable()
+	err := rod.Try(func() {
+		p.Timeout(15 * time.Second).MustNavigate(item.URL).
+			MustWaitLoad().
+			MustWaitDOMStable()
 
-	//defer p.MustClose()
-
-	screenshotFolder := ctx.Value("screenshotLocation").(string)
-	location := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
-	p.MustScreenshot(location)
-	atomic.AddUint32(&COUNTER, 1)
-	href := p.MustEval(c.injectionJS["href"]).Str()
-	base, token := tokenizerURL(href)
-	if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
-		rstChannel <- types.NewVuePathRst(item.ParentURL, href, location)
+		time.Sleep(1 * time.Second)
+		href := p.MustEval(c.injectionJS["href"]).Str()
+		base, token := tokenizerURL(href)
+		if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
+			c.lock.Lock()
+			screenshotFolder := ctx.Value("screenshotLocation").(string)
+			location := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
+			p.MustScreenshot(location)
+			atomic.AddUint32(&COUNTER, 1)
+			rstChannel <- types.NewVuePathRst(item.ParentURL, href, location)
+			c.lock.Unlock()
+		}
+	})
+	if errors.Is(err, context.DeadlineExceeded) || err != nil {
+		gologger.Error().Msgf("connection to %s error:%s\n", item.URL, err)
+		return
 	}
-	p.MustClose()
 }
 
 func (c *Crawler) Close() {

@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+var (
+	WorkDir string
+)
+
+func init() {
+	WorkDir, _ = os.Getwd()
+}
+
 func LoadTargets(path string) ([]string, error) {
 	var results []string
 	_, err := os.Stat(path)

@@ -16,12 +16,12 @@ type Writer struct {
 	//isJson bool
 	//outputFile io.WriteCloser
 
-	vueResultBuffer map[string]*types.ReadmeBuffer
+	vueResultBuffer map[string]*types.MarkdownBuffer
 }
 
 func NewWriter() *Writer {
 	w := &Writer{}
-	w.vueResultBuffer = make(map[string]*types.ReadmeBuffer)
+	w.vueResultBuffer = make(map[string]*types.MarkdownBuffer)
 
 	return w
 }
@@ -41,7 +41,7 @@ func (w *Writer) DefaultWriter(rst types.Result) {
 	if rst.TypeOfRst&types.VuePathCheckType == types.VuePathCheckType {
 		builder.WriteString(rst.VuePathRst.URI)
 		if w.vueResultBuffer[rst.VuePathRst.ParentURL] == nil {
-			w.vueResultBuffer[rst.VuePathRst.ParentURL] = new(types.ReadmeBuffer)
+			w.vueResultBuffer[rst.VuePathRst.ParentURL] = types.NewReadmeBuffer()
 		}
 		w.vueResultBuffer[rst.VuePathRst.ParentURL].AddItem(rst.VuePathRst.URI, rst.VuePathRst.ScreenshotName)
 	}
@@ -65,8 +65,12 @@ func (w *Writer) exportVuePathReport() {
 			Detail: contentBuffer.Detail.String(),
 		}
 
-		markdownReportLocaion := filepath.Join("reports", "vue_reports", util.URL2FileName(baseU), "report.md")
-		reportHandle, _ := os.OpenFile(markdownReportLocaion, os.O_CREATE|os.O_APPEND, 0777)
-		tmpl.Execute(reportHandle, data)
+		markdownReportLocaion := filepath.Join(util.WorkDir, "reports", "vue_reports", util.URL2FileName(baseU), "report.md")
+		reportHandle, _ := os.OpenFile(markdownReportLocaion, os.O_CREATE|os.O_RDWR, 0777)
+		err := tmpl.Execute(reportHandle, data)
+		if err != nil {
+			gologger.Warning().Msgf("Error is:%s\n", err)
+		}
+		gologger.Info().Msgf("Vue path report location: %s\n", markdownReportLocaion)
 	}
 }

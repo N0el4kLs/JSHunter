@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-type ReadmeBuffer struct {
+type MarkdownBuffer struct {
 	// Toc table of content
 	Toc strings.Builder
 
@@ -13,16 +13,16 @@ type ReadmeBuffer struct {
 	Detail strings.Builder
 }
 
-func NewReadmeBuffer() *ReadmeBuffer {
-	return &ReadmeBuffer{
+func NewReadmeBuffer() *MarkdownBuffer {
+	return &MarkdownBuffer{
 		Toc:    strings.Builder{},
 		Detail: strings.Builder{},
 	}
 }
 
-func (r *ReadmeBuffer) AddItem(s, location string) {
+func (r *MarkdownBuffer) AddItem(s, location string) {
 	r.Toc.WriteString(fmt.Sprintf("[%s](####%s)\n", s, s))
 
-	r.Detail.WriteString(fmt.Sprintf("####%s\n", s))
+	r.Detail.WriteString(fmt.Sprintf("#### %s\n", s))
 	r.Detail.WriteString(fmt.Sprintf("![](%s)\n", location))
 }
