@@ -56,6 +56,13 @@ func (w *Writer) Close() {
 
 func (w *Writer) exportVuePathReport() {
 	for baseU, contentBuffer := range w.vueResultBuffer {
+		// if haven't any vue router result, do not generate the report and clean the screenshot folder
+		resultFolder := filepath.Join(util.WorkDir, "reports", "vue_reports", util.URL2FileName(baseU))
+		if contentBuffer.Toc.String() == "" {
+			os.RemoveAll(resultFolder)
+			continue
+		}
+
 		tmpl, _ := template.New("markdownReport").Parse(util.GetTemplateContent())
 		data := struct {
 			URL, Toc, Detail string
@@ -65,7 +72,7 @@ func (w *Writer) exportVuePathReport() {
 			Detail: contentBuffer.Detail.String(),
 		}
 
-		markdownReportLocaion := filepath.Join(util.WorkDir, "reports", "vue_reports", util.URL2FileName(baseU), "report.md")
+		markdownReportLocaion := filepath.Join(resultFolder, "report.md")
 		reportHandle, _ := os.OpenFile(markdownReportLocaion, os.O_CREATE|os.O_RDWR, 0777)
 		err := tmpl.Execute(reportHandle, data)
 		if err != nil {

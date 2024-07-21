@@ -177,7 +177,7 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 			MustWaitDOMStable()
 
 		// sleep 1 second to ensure the page is stable
-		time.Sleep(1 * time.Second)
+		time.Sleep(3 * time.Second)
 		href := p.MustEval(c.injectionJS["href"]).Str()
 		base, token := tokenizerURL(href)
 
@@ -192,8 +192,13 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 			c.lock.Unlock()
 		}
 	})
-	if errors.Is(err, context.DeadlineExceeded) || err != nil {
-		gologger.Error().Msgf("connection to %s error:%s\n", item.URL, err)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
+		} else {
+			gologger.Error().Msgf("error occurred to %s error: %s\n", item.URL, err)
+			gologger.Debug().Msgf("error occurred to %s error: %s\n", item.URL, err)
+		}
 		return
 	}
 }

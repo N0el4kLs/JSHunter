@@ -170,7 +170,6 @@ func (r *Runner) Run() error {
 
 	// wait vue path check process and endpoint check process done
 	r.processWg.Wait()
-	r.Close()
 
 	return nil
 }
