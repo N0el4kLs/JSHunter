@@ -79,9 +79,8 @@ func NewCrawler(isHeadless bool) *Crawler {
 	}
 }
 
-// RunHeadless use chromium to load target and inject javascript code
-// Return:
-func (c *Crawler) RunHeadless(t *Task) (*Task, *rod.Page) {
+// GetAllVueRouters use chromium to load target and inject javascript to get all vue routers
+func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 	defer func() {
 		// handle navigation failed: net::ERR_NAME_NOT_RESOLVED
 		if err := recover(); err != nil {
@@ -93,6 +92,8 @@ func (c *Crawler) RunHeadless(t *Task) (*Task, *rod.Page) {
 		MustWaitLoad().
 		MustWaitDOMStable()
 
+	// sleep 1 second to ensure the page load completely
+	time.Sleep(1 * time.Second)
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
 	baseURL := fixBaseURl(href)
@@ -144,8 +145,8 @@ func (c *Crawler) RunHeadless(t *Task) (*Task, *rod.Page) {
 	return t, page
 }
 
-// HtmlBrokenAnalysis is a function to analysis the html result
-func (c *Crawler) HtmlBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan types.Result {
+// RouterBrokenAnalysis is a function to analysis if the vue router has broken access
+func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan types.Result {
 	var (
 		vuePathRstChan = make(chan types.Result)
 	)
@@ -156,7 +157,7 @@ func (c *Crawler) HtmlBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan
 		for _, htmlSub := range t.HtmlSubs {
 			c.wg.Add()
 
-			go c.accessURLWithChan(ctx, htmlSub, vuePathRstChan)
+			go c.accessRouterWithChan(ctx, htmlSub, vuePathRstChan)
 		}
 
 		c.wg.Wait()
@@ -165,7 +166,7 @@ func (c *Crawler) HtmlBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan
 	return vuePathRstChan
 }
 
-func (c *Crawler) accessURLWithChan(ctx context.Context, item *VuePathDetail, rstChannel chan types.Result) {
+func (c *Crawler) accessRouterWithChan(ctx context.Context, item *VuePathDetail, rstChannel chan types.Result) {
 	defer c.wg.Done()
 	p := c.BrowserInstance.MustPage()
 	defer p.MustClose()
@@ -175,9 +176,12 @@ func (c *Crawler) accessURLWithChan(ctx context.Context, item *VuePathDetail, rs
 			MustWaitLoad().
 			MustWaitDOMStable()
 
+		// sleep 1 second to ensure the page is stable
 		time.Sleep(1 * time.Second)
 		href := p.MustEval(c.injectionJS["href"]).Str()
 		base, token := tokenizerURL(href)
+
+		// if url does not contain redirect and base url is not blank page, then it is a broken access
 		if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
 			c.lock.Lock()
 			screenshotFolder := ctx.Value("screenshotLocation").(string)
@@ -217,7 +221,7 @@ func fixBaseURl(s string) string {
 // input: https://examle.com/#/login?redirect=%2FauditDetail
 // output:
 // baseURL: https://examle.com/#/login
-// uriToken: https://examle.com/#/login?redirect={REDIRECT} -> base64
+// uriToken: https://examle.com/#/login?redirect={REDIRECT}
 //
 // Todo need to handle uri without frag like: http://example.com/login
 // If uri has no frag, then uriToken is NO_REDIRECT
@@ -232,8 +236,7 @@ func tokenizerURL(s string) (string, string) {
 		s = strings.Replace(s, "%2F", "/", -1)
 	}
 
-	indexFrag := strings.IndexAny(s, "/#/")
-	if indexFrag != -1 {
+	if indexFrag := strings.IndexAny(s, "/#/"); indexFrag != -1 {
 		cleanURI = strings.Replace(s, "/#/", "/", 1)
 	} else {
 		cleanURI = s
@@ -262,9 +265,4 @@ func tokenizerURL(s string) (string, string) {
 	}
 
 	return baseURI, uriToken
-}
-
-type TokenRemark struct {
-	TokenType bool   // true: with redirect, false: without redirect
-	Token     string // token string
 }

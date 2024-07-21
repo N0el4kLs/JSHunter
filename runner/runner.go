@@ -313,34 +313,6 @@ func (r *Runner) runEndpointCheck(u string) {
 	}
 }
 
-func (r *Runner) runVuePathCheck() {
-	defer func() {
-		r.processWg.Done()
-		gologger.Debug().Msgf("Vue path task done.")
-	}()
-
-	gologger.Info().Msgf("Start vue path check...\n")
-
-	for vueCheckTask := range r.vueTaskChan {
-		rst, page := r.crawlerEngine.RunHeadless(vueCheckTask)
-
-		if len(rst.Subs) > 0 {
-			// create folder to save screenshot
-			folder := util.URL2FileName(rst.URL)
-			screenshotDir := filepath.Join(util.WorkDir, "reports", "vue_reports", folder, "resources")
-			os.MkdirAll(screenshotDir, 0777)
-			ctx := context.WithValue(context.Background(), "screenshotLocation", screenshotDir)
-
-			rs := headless.CategoryReqType(rst)
-			rets := r.crawlerEngine.HtmlBrokenAnalysis(ctx, rs)
-			for ret := range rets {
-				r.outChannel <- ret
-			}
-		}
-		page.MustClose()
-	}
-}
-
 func (r *Runner) checkEndpoint() {
 	defer func() {
 		r.processWg.Done()
@@ -355,4 +327,33 @@ func (r *Runner) checkEndpoint() {
 	}
 
 	r.MaxGoroutines.Wait()
+}
+
+func (r *Runner) runVuePathCheck() {
+	defer func() {
+		r.processWg.Done()
+		gologger.Debug().Msgf("Vue path task done.")
+	}()
+
+	gologger.Info().Msgf("Start vue path check...\n")
+
+	for vueCheckTask := range r.vueTaskChan {
+		rst, page := r.crawlerEngine.GetAllVueRouters(vueCheckTask)
+
+		// if find vue router
+		if len(rst.Subs) > 0 {
+			// create folder to save screenshot
+			folder := util.URL2FileName(rst.URL)
+			screenshotDir := filepath.Join(util.WorkDir, "reports", "vue_reports", folder, "resources")
+			os.MkdirAll(screenshotDir, 0777)
+			ctx := context.WithValue(context.Background(), "screenshotLocation", screenshotDir)
+
+			rs := headless.CategoryReqType(rst)
+			rets := r.crawlerEngine.RouterBrokenAnalysis(ctx, rs)
+			for ret := range rets {
+				r.outChannel <- ret
+			}
+		}
+		page.MustClose()
+	}
 }

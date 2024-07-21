@@ -55,6 +55,7 @@ type BrokenItem struct {
 	Comment       string   // additional comment
 }
 
+// Todo It seems like this function is no need, deprecated in next version
 // seems the path can not be loading properly since it needs javascript to render
 func CategoryReqType(t *Task) *VueTargetInfo {
 	result := &VueTargetInfo{
