@@ -1,9 +1,13 @@
 package headless
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"js-hunter/pkg/httpx"
+	"js-hunter/pkg/util"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/imroc/req/v3"
@@ -55,7 +59,18 @@ type BrokenItem struct {
 	Comment       string   // additional comment
 }
 
-// Todo It seems like this function is no need, deprecated in next version
+type CheckItem struct {
+	URL string // inputted target url
+
+	routerItems []VueRouterItem
+}
+
+type VueRouterItem struct {
+	URL       string // vue router url
+	ParentURL string // where the vue router url comes from
+}
+
+// CategoryReqType This function is deprecated
 // seems the path can not be loading properly since it needs javascript to render
 func CategoryReqType(t *Task) *VueTargetInfo {
 	result := &VueTargetInfo{
@@ -148,4 +163,29 @@ func CategoryReqType(t *Task) *VueTargetInfo {
 	}
 
 	return result
+}
+
+func PrepareRouterCheck(t *Task) (context.Context, CheckItem) {
+	// create folder to save screenshot
+	folder := util.URL2FileName(t.URL)
+	screenshotDir := filepath.Join(util.WorkDir, "reports", "vue_reports", folder, "resources")
+	os.MkdirAll(screenshotDir, 0777)
+	ctx := context.WithValue(context.Background(), "screenshotLocation", screenshotDir)
+
+	var (
+		checkItem CheckItem
+		uniqueTmp = make(map[string]struct{})
+	)
+	checkItem.URL = t.URL
+	for _, sub := range t.Subs {
+		if _, ok := uniqueTmp[sub]; !ok {
+			uniqueTmp[sub] = struct{}{}
+			checkItem.routerItems = append(checkItem.routerItems, VueRouterItem{
+				URL:       sub,
+				ParentURL: t.URL,
+			})
+		}
+	}
+
+	return ctx, checkItem
 }

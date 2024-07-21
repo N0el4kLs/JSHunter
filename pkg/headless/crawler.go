@@ -146,27 +146,27 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 }
 
 // RouterBrokenAnalysis is a function to analysis if the vue router has broken access
-func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, t *VueTargetInfo) chan types.Result {
+func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, t CheckItem) chan types.Result {
 	var (
-		vuePathRstChan = make(chan types.Result)
+		vueRouterRstChan = make(chan types.Result)
 	)
 
 	go func() {
-		defer close(vuePathRstChan)
+		defer close(vueRouterRstChan)
 
-		for _, htmlSub := range t.HtmlSubs {
+		for _, htmlSub := range t.routerItems {
 			c.wg.Add()
 
-			go c.accessRouterWithChan(ctx, htmlSub, vuePathRstChan)
+			go c.accessRouterWithChan(ctx, htmlSub, vueRouterRstChan)
 		}
 
 		c.wg.Wait()
 	}()
 
-	return vuePathRstChan
+	return vueRouterRstChan
 }
 
-func (c *Crawler) accessRouterWithChan(ctx context.Context, item *VuePathDetail, rstChannel chan types.Result) {
+func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, rstChannel chan types.Result) {
 	defer c.wg.Done()
 	p := c.BrowserInstance.MustPage()
 	defer p.MustClose()
@@ -185,10 +185,10 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item *VuePathDetail,
 		if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
 			c.lock.Lock()
 			screenshotFolder := ctx.Value("screenshotLocation").(string)
-			location := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
-			p.MustScreenshot(location)
+			screenshotLocation := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
+			p.MustScreenshot(screenshotLocation)
 			atomic.AddUint32(&COUNTER, 1)
-			rstChannel <- types.NewVuePathRst(item.ParentURL, href, location)
+			rstChannel <- types.NewVuePathRst(item.ParentURL, href, screenshotLocation)
 			c.lock.Unlock()
 		}
 	})
