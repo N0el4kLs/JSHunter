@@ -98,6 +98,8 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
 	baseURL := c.foundBaseURL(page)
+	gologger.Info().Msgf("found base ulr: %s\n", baseURL)
+
 	baseURI, token := tokenizerURL(href)
 	t.BaseURI = baseURI
 	t.BaseToken = func() string {
@@ -177,7 +179,7 @@ func (c *Crawler) foundBaseURL(p *rod.Page) string {
 		html := p.MustHTML()
 		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 		if err != nil {
-			gologger.Error().Msgf("cannot parse html from %s\n", href)
+			gologger.Warning().Msgf("cannot parse html from %s\n", href)
 		}
 
 		// Find the first script tag with a "src" attribute
@@ -248,8 +250,9 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
+				c.lock.Unlock()
 				gologger.Error().
-					Msgf("Access %s error: %s\n", item, err)
+					Msgf("Access %s error: %s\n", item.URL, err)
 			}
 		}()
 		err := p.Timeout(10 * time.Second).
@@ -264,18 +267,18 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 
 		// sleep 3 second to ensure the page is stable
 		time.Sleep(3 * time.Second)
-		gologger.Debug().Msgf("Start injection js for url: %s\n", item.URL)
+		//gologger.Debug().Msgf("Start injection js for url: %s\n", item.URL)
 		item.IndexURL = p.MustEval(c.injectionJS["href"]).Str()
 		item.Base, item.Token = tokenizerURL(item.IndexURL)
 
 		if isBrokenAccess(item) {
-			gologger.Debug().Msgf("Start screenshot for url: %s\n", item.URL)
+			//gologger.Debug().Msgf("Start screenshot for url: %s\n", item.URL)
 			c.lock.Lock()
 			screenshotFolder := ctx.Value("screenshotLocation").(string)
 			screenshotLocation := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
-			// Todo something wrong with MustScreenshot, it will cause the browser to block
+			// use timeout to control MustScreenshot action
 			p.MustScreenshot(screenshotLocation)
-			gologger.Debug().Msgf("Screenshot over for url: %s\n", item.URL)
+			//gologger.Debug().Msgf("Screenshot over for url: %s\n", item.URL)
 			atomic.AddUint32(&COUNTER, 1)
 			rstChannel <- types.NewVuePathRst(item.ParentURL.URL, item.IndexURL, screenshotLocation)
 			c.lock.Unlock()
@@ -286,7 +289,7 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 	select {
 	case <-tabDoneSign:
 		p.Close()
-	case <-time.After(600 * time.Second):
+	case <-time.After(20 * time.Second):
 		gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
 		p.Close()
 	}

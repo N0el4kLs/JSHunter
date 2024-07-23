@@ -97,8 +97,10 @@ func ParseOptions() (*Options, error) {
 
 	if options.IsDebug {
 		gologger.DefaultLogger.SetMaxLevel(levels.LevelDebug)
+		gologger.Info().Msgf("Debug mode enabled\n")
 	} else {
-		gologger.DefaultLogger.SetMaxLevel(levels.LevelError)
+		gologger.DefaultLogger.SetMaxLevel(levels.LevelWarning)
+		gologger.Info().Msgf("Debug mode disable\n")
 	}
 
 	if options.URLFile == "" && options.URL == "" {
