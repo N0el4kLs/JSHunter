@@ -62,12 +62,29 @@ type BrokenItem struct {
 type CheckItem struct {
 	URL string // inputted target url
 
-	routerItems []VueRouterItem
+	// FirstVisitURL first visit url, this field will be used to check the broken access.
+	// for example:
+	// when visited target: http://example.com
+	// the first visit url is http://example.com/index.html
+	FirstVisitURL string
 }
 
 type VueRouterItem struct {
-	URL       string // vue router url
-	ParentURL string // where the vue router url comes from
+	URL string // vue router url
+
+	// Href actual href of the vue router url, this field will be used to check the broken access.
+	// for example:
+	// when visit router: http://example.com/#/home
+	// there is a redirect to http://example.com/#/login, so the href is http://example.com/#/login
+	Href string
+
+	// BaseURL base url of the vue router url without any frag or query
+	Base string
+
+	// Token tokenized url
+	Token string
+
+	ParentURL CheckItem // where the vue router url comes from
 }
 
 // CategoryReqType This function is deprecated
@@ -165,7 +182,7 @@ func CategoryReqType(t *Task) *VueTargetInfo {
 	return result
 }
 
-func PrepareRouterCheck(t *Task) (context.Context, CheckItem) {
+func PrepareRouterCheck(t *Task) (context.Context, []VueRouterItem) {
 	// create folder to save screenshot
 	folder := util.URL2FileName(t.URL)
 	screenshotDir := filepath.Join(util.WorkDir, "reports", "vue_reports", folder, "resources")
@@ -173,19 +190,21 @@ func PrepareRouterCheck(t *Task) (context.Context, CheckItem) {
 	ctx := context.WithValue(context.Background(), "screenshotLocation", screenshotDir)
 
 	var (
-		checkItem CheckItem
-		uniqueTmp = make(map[string]struct{})
+		checkItem   CheckItem
+		routerItems []VueRouterItem
+		uniqueTmp   = make(map[string]struct{})
 	)
 	checkItem.URL = t.URL
+	checkItem.FirstVisitURL = t.IndexURL
 	for _, sub := range t.Subs {
 		if _, ok := uniqueTmp[sub]; !ok {
 			uniqueTmp[sub] = struct{}{}
-			checkItem.routerItems = append(checkItem.routerItems, VueRouterItem{
+			routerItems = append(routerItems, VueRouterItem{
 				URL:       sub,
-				ParentURL: t.URL,
+				ParentURL: checkItem,
 			})
 		}
 	}
 
-	return ctx, checkItem
+	return ctx, routerItems
 }

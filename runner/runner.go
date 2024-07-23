@@ -341,8 +341,8 @@ func (r *Runner) runVuePathCheck() {
 			// create folder to save screenshot
 
 			//rs := headless.CategoryReqType(rst)
-			ctx, checkItem := headless.PrepareRouterCheck(rst)
-			rets := r.crawlerEngine.RouterBrokenAnalysis(ctx, checkItem)
+			ctx, checkItems := headless.PrepareRouterCheck(rst)
+			rets := r.crawlerEngine.RouterBrokenAnalysis(ctx, checkItems)
 			for ret := range rets {
 				r.outChannel <- ret
 			}

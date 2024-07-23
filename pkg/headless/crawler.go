@@ -91,8 +91,8 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 		MustWaitLoad().
 		MustWaitDOMStable()
 
-	// sleep 1 second to ensure the page load completely
-	time.Sleep(1 * time.Second)
+	// sleep 2 second to ensure the page load completely
+	time.Sleep(2 * time.Second)
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
 	baseURL := fixBaseURl(href)
@@ -145,7 +145,7 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 }
 
 // RouterBrokenAnalysis is a function to analysis if the vue router has broken access
-func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, t CheckItem) chan types.Result {
+func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, items []VueRouterItem) chan types.Result {
 	var (
 		vueRouterRstChan = make(chan types.Result)
 	)
@@ -153,10 +153,10 @@ func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, t CheckItem) chan ty
 	go func() {
 		defer close(vueRouterRstChan)
 
-		for _, htmlSub := range t.routerItems {
+		for _, routerItem := range items {
 			c.maxTabWg.Add()
 
-			go c.accessRouterWithChan(ctx, htmlSub, vueRouterRstChan)
+			go c.accessRouterWithChan(ctx, routerItem, vueRouterRstChan)
 		}
 
 		c.maxTabWg.Wait()
@@ -182,11 +182,10 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 		// sleep 3 second to ensure the page is stable
 		time.Sleep(3 * time.Second)
 		gologger.Debug().Msgf("Start injection js for url: %s\n", item.URL)
-		href := p.MustEval(c.injectionJS["href"]).Str()
-		base, token := tokenizerURL(href)
+		item.Href = p.MustEval(c.injectionJS["href"]).Str()
+		item.Base, item.Token = tokenizerURL(item.Href)
 
-		// if url does not contain redirect and base url is not blank page, then it is a broken access
-		if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
+		if isBrokenAccess(item) {
 			gologger.Debug().Msgf("Start screenshot for url: %s\n", item.URL)
 			c.lock.Lock()
 			screenshotFolder := ctx.Value("screenshotLocation").(string)
@@ -195,9 +194,8 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 			p.MustScreenshot(screenshotLocation)
 			gologger.Debug().Msgf("Screenshot over for url: %s\n", item.URL)
 			atomic.AddUint32(&COUNTER, 1)
-			rstChannel <- types.NewVuePathRst(item.ParentURL, href, screenshotLocation)
+			rstChannel <- types.NewVuePathRst(item.ParentURL.URL, item.Href, screenshotLocation)
 			c.lock.Unlock()
-
 		}
 		tabDoneSign <- struct{}{}
 	}()
@@ -319,3 +317,13 @@ func tokenizerURL(s string) (string, string) {
 //
 //	return isBroken
 //}
+
+func isBrokenAccess(item VueRouterItem) bool {
+	// if satisfy the following conditions at the same time, regard it as a broken access
+	// 1. token contains NO_REDIRECT
+	// 2. base url is not blank page
+	// 3. current href is not equal to the first visit url
+	return strings.Contains(item.Token, NO_REDIRECT) &&
+		!strings.Contains(item.Base, BLANKPAGE) &&
+		item.ParentURL.FirstVisitURL != item.Href
+}
