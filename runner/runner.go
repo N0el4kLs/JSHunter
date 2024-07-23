@@ -55,7 +55,7 @@ type Runner struct {
 	endpointTaskChan chan string
 
 	// vueTaskChan vue path check task queue
-	vueTaskChan chan *headless.Task
+	vueTaskChan chan *types.Task
 
 	// processWg endpoint and vue check task wait group to end the process
 	processWg sync.WaitGroup
@@ -107,7 +107,7 @@ func NewRunner(option *Options) (*Runner, error) {
 	// initialize option for vue path check
 	if option.IsVuePathCheck || option.IsCheckAll {
 		runner.crawlerEngine = headless.NewCrawler(option.IsHeadless)
-		runner.vueTaskChan = make(chan *headless.Task, 30)
+		runner.vueTaskChan = make(chan *types.Task, 30)
 	}
 
 	if option.IsEndpointCheck || option.IsCheckAll {
@@ -160,7 +160,7 @@ func (r *Runner) Run() error {
 		}
 
 		if r.vueTaskChan != nil {
-			t := headless.NewTask(u)
+			t := types.NewTask(u)
 			r.vueTaskChan <- t
 		}
 	}

@@ -81,7 +81,7 @@ func NewCrawler(isHeadless bool) *Crawler {
 }
 
 // GetAllVueRouters use chromium to load target and inject javascript to get all vue routers
-func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
+func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 	defer func() {
 		// handle navigation failed: net::ERR_NAME_NOT_RESOLVED
 		if err := recover(); err != nil {
@@ -98,16 +98,7 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
 	baseURL := c.foundBaseURL(page)
-	gologger.Info().Msgf("found base ulr: %s\n", baseURL)
-
-	baseURI, token := tokenizerURL(href)
-	t.BaseURI = baseURI
-	t.BaseToken = func() string {
-		if token == NO_REDIRECT {
-			return baseURL
-		}
-		return token
-	}()
+	gologger.Info().Msgf("find base url for %s: %s\n", t.URL, baseURL)
 
 	// find vue path
 	page.MustEval(c.injectionJS["vueinfo"])
@@ -149,7 +140,7 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 }
 
 // RouterBrokenAnalysis is a function to analysis if the vue router has broken access
-func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, items []VueRouterItem) chan types.Result {
+func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, items []types.VueRouterItem) chan types.Result {
 	var (
 		vueRouterRstChan = make(chan types.Result)
 	)
@@ -237,7 +228,7 @@ func (c *Crawler) foundBaseURL(p *rod.Page) string {
 	return baseURL
 }
 
-func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, rstChannel chan types.Result) {
+func (c *Crawler) accessRouterWithChan(ctx context.Context, item types.VueRouterItem, rstChannel chan types.Result) {
 	defer func() {
 		if err := recover(); err != nil {
 			gologger.Error().Msgf("Access %s error: %s\n", item.URL, err)
@@ -363,7 +354,7 @@ func tokenizerURL(s string) (string, string) {
 	return baseURI, uriToken
 }
 
-func isBrokenAccess(item VueRouterItem) bool {
+func isBrokenAccess(item types.VueRouterItem) bool {
 	// if satisfy the following conditions at the same time, regard it as a broken access
 	// 1. token contains NO_REDIRECT
 	// 2. base url is not blank page
