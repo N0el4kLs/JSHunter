@@ -2,7 +2,6 @@ package headless
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -37,8 +36,8 @@ type Crawler struct {
 	BrowserInstance *rod.Browser
 	injectionJS     map[string]string
 
-	wg   *sizedwaitgroup.SizedWaitGroup
-	lock sync.Mutex
+	maxTabWg *sizedwaitgroup.SizedWaitGroup
+	lock     sync.Mutex
 }
 
 // NewCrawler is the construct function of initializing
@@ -74,7 +73,7 @@ func NewCrawler(isHeadless bool) *Crawler {
 	return &Crawler{
 		BrowserInstance: browser,
 		injectionJS:     injections,
-		wg:              &wg,
+		maxTabWg:        &wg,
 		lock:            sync.Mutex{},
 	}
 }
@@ -155,52 +154,95 @@ func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, t CheckItem) chan ty
 		defer close(vueRouterRstChan)
 
 		for _, htmlSub := range t.routerItems {
-			c.wg.Add()
+			c.maxTabWg.Add()
 
 			go c.accessRouterWithChan(ctx, htmlSub, vueRouterRstChan)
 		}
 
-		c.wg.Wait()
+		c.maxTabWg.Wait()
 	}()
 
 	return vueRouterRstChan
 }
 
 func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, rstChannel chan types.Result) {
-	defer c.wg.Done()
+	defer c.maxTabWg.Done()
+
+	tabDoneSign := make(chan struct{})
 	p := c.BrowserInstance.MustPage()
-	defer p.MustClose()
+	go func() {
+		err := p.Timeout(10 * time.Second).MustNavigate(item.URL).
+			WaitLoad()
+		if err != nil {
+			gologger.Error().Msgf("connection to %s error: %s\n", item.URL, err)
+			tabDoneSign <- struct{}{}
+			return
+		}
 
-	err := rod.Try(func() {
-		p.Timeout(15 * time.Second).MustNavigate(item.URL).
-			MustWaitLoad().
-			MustWaitDOMStable()
-
-		// sleep 1 second to ensure the page is stable
+		// sleep 3 second to ensure the page is stable
 		time.Sleep(3 * time.Second)
+		gologger.Debug().Msgf("Start injection js for url: %s\n", item.URL)
 		href := p.MustEval(c.injectionJS["href"]).Str()
 		base, token := tokenizerURL(href)
 
 		// if url does not contain redirect and base url is not blank page, then it is a broken access
 		if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
+			gologger.Debug().Msgf("Start screenshot for url: %s\n", item.URL)
 			c.lock.Lock()
 			screenshotFolder := ctx.Value("screenshotLocation").(string)
 			screenshotLocation := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
+			// Todo something wrong with MustScreenshot, it will cause the browser to block
 			p.MustScreenshot(screenshotLocation)
+			gologger.Debug().Msgf("Screenshot over for url: %s\n", item.URL)
 			atomic.AddUint32(&COUNTER, 1)
 			rstChannel <- types.NewVuePathRst(item.ParentURL, href, screenshotLocation)
 			c.lock.Unlock()
+
 		}
-	})
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
-		} else {
-			gologger.Error().Msgf("error occurred to %s error: %s\n", item.URL, err)
-			gologger.Debug().Msgf("error occurred to %s error: %s\n", item.URL, err)
-		}
-		return
+		tabDoneSign <- struct{}{}
+	}()
+
+	select {
+	case <-tabDoneSign:
+		p.Close()
+	case <-time.After(600 * time.Second):
+		gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
+		p.Close()
 	}
+
+	//p := c.BrowserInstance.MustPage()
+	//defer p.MustClose()
+
+	//err := rod.Try(func() {
+	//	p.Timeout(15 * time.Second).MustNavigate(item.URL).
+	//		MustWaitLoad().
+	//		MustWaitDOMStable()
+	//
+	//	// sleep 1 second to ensure the page is stable
+	//	time.Sleep(3 * time.Second)
+	//	href := p.MustEval(c.injectionJS["href"]).Str()
+	//	base, token := tokenizerURL(href)
+	//
+	//	// if url does not contain redirect and base url is not blank page, then it is a broken access
+	//	if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
+	//		c.lock.Lock()
+	//		screenshotFolder := ctx.Value("screenshotLocation").(string)
+	//		screenshotLocation := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
+	//		p.MustScreenshot(screenshotLocation)
+	//		atomic.AddUint32(&COUNTER, 1)
+	//		rstChannel <- types.NewVuePathRst(item.ParentURL, href, screenshotLocation)
+	//		c.lock.Unlock()
+	//	}
+	//})
+	//if err != nil {
+	//	if errors.Is(err, context.DeadlineExceeded) {
+	//		gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
+	//	} else {
+	//		gologger.Error().Msgf("error occurred to %s error: %s\n", item.URL, err)
+	//		gologger.Debug().Msgf("error occurred to %s error: %s\n", item.URL, err)
+	//	}
+	//	return
+	//}
 }
 
 func (c *Crawler) Close() {
@@ -271,3 +313,9 @@ func tokenizerURL(s string) (string, string) {
 
 	return baseURI, uriToken
 }
+
+//func isBrokenAccess() bool {
+//	var isBroken bool
+//
+//	return isBroken
+//}
