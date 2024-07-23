@@ -334,14 +334,11 @@ func (r *Runner) runVuePathCheck() {
 	gologger.Info().Msgf("Start vue path check...\n")
 
 	for vueCheckTask := range r.vueTaskChan {
-		rst, page := r.crawlerEngine.GetAllVueRouters(vueCheckTask)
+		currentTask, page := r.crawlerEngine.GetAllVueRouters(vueCheckTask)
 
 		// if find vue router
-		if len(rst.Subs) > 0 {
-			// create folder to save screenshot
-
-			//rs := headless.CategoryReqType(rst)
-			ctx, checkItems := headless.PrepareRouterCheck(rst)
+		if len(currentTask.Subs) > 0 {
+			ctx, checkItems := headless.PrepareRouterCheck(currentTask)
 			rets := r.crawlerEngine.RouterBrokenAnalysis(ctx, checkItems)
 			for ret := range rets {
 				r.outChannel <- ret

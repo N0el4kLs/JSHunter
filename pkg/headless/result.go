@@ -72,11 +72,11 @@ type CheckItem struct {
 type VueRouterItem struct {
 	URL string // vue router url
 
-	// Href actual href of the vue router url, this field will be used to check the broken access.
+	// IndexURL actual href of the vue router url, this field will be used to check the broken access.
 	// for example:
 	// when visit router: http://example.com/#/home
-	// there is a redirect to http://example.com/#/login, so the href is http://example.com/#/login
-	Href string
+	// there is a redirect to http://example.com/#/login, so the index url is http://example.com/#/login
+	IndexURL string
 
 	// BaseURL base url of the vue router url without any frag or query
 	Base string

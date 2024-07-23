@@ -11,8 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"js-hunter/pkg/httpx"
 	"js-hunter/pkg/types"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/projectdiscovery/gologger"
@@ -95,7 +97,7 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 	time.Sleep(2 * time.Second)
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
-	baseURL := fixBaseURl(href)
+	baseURL := c.foundBaseURL(page)
 	baseURI, token := tokenizerURL(href)
 	t.BaseURI = baseURI
 	t.BaseToken = func() string {
@@ -124,11 +126,11 @@ func (c *Crawler) GetAllVueRouters(t *Task) (*Task, *rod.Page) {
 		if strings.Contains(path, "*") || strings.Contains(path, ":") {
 			continue
 		}
-		if strings.HasPrefix(path, "/") {
-			path = path[1:]
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
 		}
-		url := fmt.Sprintf("%s%s", baseURL, path)
-		tmp = append(tmp, url)
+		router := fmt.Sprintf("%s%s", baseURL, path)
+		tmp = append(tmp, router)
 	}
 
 	// unique tmp
@@ -165,14 +167,95 @@ func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, items []VueRouterIte
 	return vueRouterRstChan
 }
 
+func (c *Crawler) foundBaseURL(p *rod.Page) string {
+	var baseURL string
+	href := p.MustEval(c.injectionJS["href"]).Str()
+	if strings.Contains(href, "#") {
+		baseURL = fixBaseURl(href)
+	} else {
+		// visit js file to ensure the base url
+		html := p.MustHTML()
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			gologger.Error().Msgf("cannot parse html from %s\n", href)
+		}
+
+		// Find the first script tag with a "src" attribute
+		var (
+			firstScriptSrc string
+			subPathLists   []string
+		)
+		doc.Find("script").Each(func(i int, s *goquery.Selection) {
+			// Get the src attribute
+			src, exists := s.Attr("src")
+			if exists {
+				if strings.HasSuffix(src, ".js") && !strings.HasPrefix(src, "http") {
+					if !strings.HasPrefix(src, "/") {
+						firstScriptSrc = "/" + src
+					} else {
+						firstScriptSrc = src
+					}
+					return
+				}
+			}
+		})
+
+		uu, err := url.Parse(href)
+		if err != nil {
+			gologger.Error().Msgf("Can not parse url: %s \n", href)
+		}
+		tmpBaseURL := fmt.Sprintf("%s://%s", uu.Scheme, uu.Host)
+		subPah := strings.Split(uu.Path, "/")
+		for i := 0; i < len(subPah); i++ {
+			subPathLists = append(subPathLists, strings.Join(subPah[:i+1], "/"))
+		}
+		tmpU := tmpBaseURL + firstScriptSrc
+		reqClient := httpx.NewGetClient("", 10)
+		resp, err := reqClient.DoRequest(tmpU)
+		if resp.StatusCode == 200 && strings.Contains(resp.GetHeader("Content-Type"), "javascript") {
+			baseURL = tmpBaseURL
+		} else {
+			for _, subPath := range subPathLists {
+				if subPath == "" {
+					continue
+				}
+				tmpU = tmpBaseURL + subPath + firstScriptSrc
+				resp, err = reqClient.DoRequest(tmpU)
+				if err != nil {
+					continue
+				}
+				if resp.StatusCode == 200 && resp.ContentLength > 0 {
+					baseURL = tmpBaseURL
+					break
+				}
+			}
+		}
+	}
+
+	return baseURL
+}
+
 func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, rstChannel chan types.Result) {
+	defer func() {
+		if err := recover(); err != nil {
+			gologger.Error().Msgf("Access %s error: %s\n", item.URL, err)
+		}
+	}()
 	defer c.maxTabWg.Done()
 
 	tabDoneSign := make(chan struct{})
 	p := c.BrowserInstance.MustPage()
 	go func() {
-		err := p.Timeout(10 * time.Second).MustNavigate(item.URL).
+		defer func() {
+			if err := recover(); err != nil {
+				gologger.Error().
+					Msgf("Access %s error: %s\n", item, err)
+			}
+		}()
+		err := p.Timeout(10 * time.Second).
+			MustNavigate(item.URL).
 			WaitLoad()
+
 		if err != nil {
 			gologger.Error().Msgf("connection to %s error: %s\n", item.URL, err)
 			tabDoneSign <- struct{}{}
@@ -182,8 +265,8 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 		// sleep 3 second to ensure the page is stable
 		time.Sleep(3 * time.Second)
 		gologger.Debug().Msgf("Start injection js for url: %s\n", item.URL)
-		item.Href = p.MustEval(c.injectionJS["href"]).Str()
-		item.Base, item.Token = tokenizerURL(item.Href)
+		item.IndexURL = p.MustEval(c.injectionJS["href"]).Str()
+		item.Base, item.Token = tokenizerURL(item.IndexURL)
 
 		if isBrokenAccess(item) {
 			gologger.Debug().Msgf("Start screenshot for url: %s\n", item.URL)
@@ -194,7 +277,7 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 			p.MustScreenshot(screenshotLocation)
 			gologger.Debug().Msgf("Screenshot over for url: %s\n", item.URL)
 			atomic.AddUint32(&COUNTER, 1)
-			rstChannel <- types.NewVuePathRst(item.ParentURL.URL, item.Href, screenshotLocation)
+			rstChannel <- types.NewVuePathRst(item.ParentURL.URL, item.IndexURL, screenshotLocation)
 			c.lock.Unlock()
 		}
 		tabDoneSign <- struct{}{}
@@ -207,40 +290,6 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item VueRouterItem, 
 		gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
 		p.Close()
 	}
-
-	//p := c.BrowserInstance.MustPage()
-	//defer p.MustClose()
-
-	//err := rod.Try(func() {
-	//	p.Timeout(15 * time.Second).MustNavigate(item.URL).
-	//		MustWaitLoad().
-	//		MustWaitDOMStable()
-	//
-	//	// sleep 1 second to ensure the page is stable
-	//	time.Sleep(3 * time.Second)
-	//	href := p.MustEval(c.injectionJS["href"]).Str()
-	//	base, token := tokenizerURL(href)
-	//
-	//	// if url does not contain redirect and base url is not blank page, then it is a broken access
-	//	if strings.Contains(token, NO_REDIRECT) && !strings.Contains(base, BLANKPAGE) {
-	//		c.lock.Lock()
-	//		screenshotFolder := ctx.Value("screenshotLocation").(string)
-	//		screenshotLocation := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
-	//		p.MustScreenshot(screenshotLocation)
-	//		atomic.AddUint32(&COUNTER, 1)
-	//		rstChannel <- types.NewVuePathRst(item.ParentURL, href, screenshotLocation)
-	//		c.lock.Unlock()
-	//	}
-	//})
-	//if err != nil {
-	//	if errors.Is(err, context.DeadlineExceeded) {
-	//		gologger.Error().Msgf("connection to %s error: %s\n", item.URL, "timeout")
-	//	} else {
-	//		gologger.Error().Msgf("error occurred to %s error: %s\n", item.URL, err)
-	//		gologger.Debug().Msgf("error occurred to %s error: %s\n", item.URL, err)
-	//	}
-	//	return
-	//}
 }
 
 func (c *Crawler) Close() {
@@ -298,7 +347,6 @@ func tokenizerURL(s string) (string, string) {
 
 		index := strings.Index(st, "?")
 		baseURI = st[:index]
-		//uriToken = base64.StdEncoding.EncodeToString([]byte(st))
 		uriToken = st
 	} else {
 		if index := strings.Index(s, "?"); index != -1 {
@@ -312,12 +360,6 @@ func tokenizerURL(s string) (string, string) {
 	return baseURI, uriToken
 }
 
-//func isBrokenAccess() bool {
-//	var isBroken bool
-//
-//	return isBroken
-//}
-
 func isBrokenAccess(item VueRouterItem) bool {
 	// if satisfy the following conditions at the same time, regard it as a broken access
 	// 1. token contains NO_REDIRECT
@@ -325,5 +367,5 @@ func isBrokenAccess(item VueRouterItem) bool {
 	// 3. current href is not equal to the first visit url
 	return strings.Contains(item.Token, NO_REDIRECT) &&
 		!strings.Contains(item.Base, BLANKPAGE) &&
-		item.ParentURL.FirstVisitURL != item.Href
+		item.ParentURL.FirstVisitURL != item.IndexURL
 }
