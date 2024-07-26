@@ -38,6 +38,14 @@ func (w *Writer) DefaultWriter(rst types.Result) {
 		builder.WriteString(" ] ")
 	}
 
+	if rst.TypeOfRst&types.SensitiveCheckType == types.SensitiveCheckType {
+		builder.WriteString(rst.SensitiveRst.URL)
+
+		builder.WriteString(" [")
+		builder.WriteString(rst.SensitiveRst.Msg)
+		builder.WriteString(" ] ")
+	}
+
 	if rst.TypeOfRst&types.VuePathCheckType == types.VuePathCheckType {
 		builder.WriteString(rst.VuePathRst.URI)
 		if w.vueResultBuffer[rst.VuePathRst.ParentURL] == nil {

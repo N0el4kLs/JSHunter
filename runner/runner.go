@@ -9,6 +9,7 @@ import (
 
 	"js-hunter/pkg/analyze"
 	"js-hunter/pkg/extracter"
+	_ "js-hunter/pkg/extracter/extractor/api_key"
 	_ "js-hunter/pkg/extracter/extractor/get"
 	_ "js-hunter/pkg/extracter/extractor/post"
 	"js-hunter/pkg/headless"
@@ -79,20 +80,23 @@ func NewRunner(option *Options) (*Runner, error) {
 		runner.URLs = append(runner.URLs, urls...)
 	}
 
-	if option.IsCheckAll || option.IsEndpointCheck {
-		err := godotenv.Load(option.EnvPath)
+	if option.AiSource != "" && (option.IsEndpointCheck || option.IsCheckAll) {
+		envPath := util.FixPath(option.EnvPath)
+		gologger.Info().Msgf("Load env file from: %s\n", envPath)
+		err := godotenv.Load(envPath)
 		if err != nil {
 			return runner, fmt.Errorf("Error loading .env file: %v", err)
 		}
 		// Todo When you add new ai source engines, add new "case" condition to init ai engine
 		switch option.AiSource {
 		case gemini.GEMINI:
-			gemini := gemini.Provider{}
-			err = gemini.Auth()
+			geminiEngine := gemini.Provider{}
+			err = geminiEngine.Auth()
 			if err != nil {
 				return runner, err
 			}
-			runner.AIEngine = gemini
+			runner.AIEngine = geminiEngine
+			gologger.Info().Msgf("Gemini ai source is ready...\n")
 			//case gpt.Gpt:
 			//	runner.AIEngine = gpt.Provider{}
 		}
@@ -155,7 +159,7 @@ func (r *Runner) Run() error {
 	for _, u := range r.URLs {
 		// Todo there is problem that endpoint has two analysis method, regexp and ai source
 		// In this condition, judge ai source only, need improve later
-		if r.AIEngine != nil {
+		if r.endpointTaskChan != nil {
 			r.endpointTaskChan <- u
 		}
 
@@ -177,7 +181,9 @@ func (r *Runner) Run() error {
 func (r *Runner) Close() {
 	close(r.outChannel)
 	<-r.outputOver
-	r.crawlerEngine.Close()
+	if r.crawlerEngine != nil {
+		r.crawlerEngine.Close()
+	}
 	r.writer.Close()
 }
 
@@ -198,114 +204,75 @@ func (r *Runner) runEndpointCheck(u string) {
 	reqClient := httpx.NewGetClient(r.options.Proxy, 10)
 	resp, err := reqClient.DoRequest(u)
 	if err != nil || resp.StatusCode == 404 {
-		gologger.Error().Msgf("URL: %s can not access \n", u)
+		gologger.Warning().Msgf("URL: %s can not access \n", u)
 		return
 	}
 
-	// Todo 2. choose corresponding extractor to analyze javascript file
-	// ajax or webpack
-
-	// 3. find available js paths and extract javascript
-	// Todo haven't consider if the javascript path is a completed URL
-	jsPaths := analyze.ParseJS(resp.String(), resp.Body)
+	// 2 . find available js paths and extract information from js files
+	// 2.1 find all js paths
+	var (
+		baseURL string
+		jsURIs  []string
+	)
+	jsPaths, completeU := analyze.ParseJS(u, resp.Body)
 	gologger.Info().Msgf("Find %d Javascript file in %s \n", len(jsPaths), u)
 
-	var (
-		subPathLists []string
-		baseURL      string
-		jsURIs       []string
-	)
-
-	// locate the base url
-	uu, err := url.Parse(u)
-	if err != nil {
-		gologger.Error().Msgf("Can not parse url: %s \n", u)
-		return
-	}
-	tmpBaseURL := fmt.Sprintf("%s://%s", uu.Scheme, uu.Host)
-
-	subPah := strings.Split(uu.Path, "/")
-	for i := 0; i < len(subPah); i++ {
-		subPathLists = append(subPathLists, strings.Join(subPah[:i+1], "/"))
-	}
-	tmpU := tmpBaseURL + jsPaths[0]
-
-	resp, err = reqClient.DoRequest(tmpU)
-	if err != nil {
-		gologger.Error().Msgf("URL: %s can not access \n", tmpU)
-		gologger.Debug().
-			Msgf("Get base url error: %s\n", err)
-		return
-	}
-	// Content-Encoding: gzip can not get the content length field directly
-	//if resp.StatusCode == 200 && resp.ContentLength > 0 {
-	if resp.StatusCode == 200 {
-		baseURL = tmpBaseURL
-	} else {
-		for _, subPath := range subPathLists {
-			tmpU = tmpBaseURL + subPath
-			resp, err = reqClient.DoRequest(tmpU)
-			if err != nil {
-				continue
-			}
-			if resp.StatusCode == 200 && resp.ContentLength > 0 {
-				baseURL = tmpBaseURL
-				break
-			}
-		}
-	}
-
+	baseURL = findBaseURL(u, completeU, jsPaths)
 	if baseURL == "" {
-		gologger.Error().Msgf("Can not get base url: %s\n", u)
+		gologger.Warning().Msgf("Can not get base url: %s\n", u)
 		return
 	}
-
+	//  get all absolute js path
 	for _, jsPath := range jsPaths {
+		if strings.HasPrefix(jsPath, "http") {
+			jsURIs = append(jsURIs, jsPath)
+			continue
+		}
 		jsURIs = append(jsURIs, baseURL+jsPath)
 	}
-
-	// 4. find endpoints from javascript file and
-	var endpoints []string
-	for _, jsUrl := range jsURIs {
-		resp, err = reqClient.DoRequest(jsUrl)
-		if err != nil {
-			continue
-		}
-
-		stringBody := resp.String()
-
-		for _, ector := range r.extractors {
-			if ector.Type() == extracter.PATH {
-				ed := ector.Extract(stringBody)
-				endpoints = append(endpoints, ed...)
-			}
-		}
-	}
-
-	endpoints = util.UniqueSlice(endpoints)
-	// Todo somethings the input is too long, need optimize prompt or input
-	input := strings.Join(endpoints, "\n")
-	if input == "" {
-		return
-	}
-	endpointsFromAI, err := r.AIEngine.Generate(input)
-	if err != nil {
-		gologger.Error().Msgf("%s\n", err)
+	// add base url to jsURIs to sensitive extract
+	jsURIs = append(jsURIs, u)
+	// 2.2 extract endpoints keywords and sensitive information from js files
+	endpointsKeyword := r.jsInformExtract(jsURIs)
+	endpointsKeyword = util.UniqueSlice(endpointsKeyword)
+	if len(endpointsKeyword) == 0 {
 		return
 	}
 
-	for _, ep := range endpointsFromAI {
-		epClient := httpx.Endpoint2Client(ep)
+	// 3. analyze endpoints
+	var (
+		endpointsChan     = make(chan types.EndPoint)
+		analysisProcessWg = &sync.WaitGroup{}
+	)
+	// 3.1 use Ai engine to analyze endpoints
+	if r.AIEngine != nil {
+		analysisProcessWg.Add(1)
+		gologger.Info().Msgf("Start parse the content with %s.\n", r.options.AiSource)
+		go r.analyzeWithAi(endpointsChan, endpointsKeyword, analysisProcessWg)
+	}
+	// 3.2 analyze the endpoint manually
+	// ajax or webpack
+	analysisProcessWg.Add(1)
+	go r.analyzeWithManual(analyze.GetJavascriptType(resp.String()), endpointsChan, endpointsKeyword, analysisProcessWg)
+
+	// wait all analysis process done and close the endpointsChan
+	go func() {
+		analysisProcessWg.Wait()
+		close(endpointsChan)
+	}()
+
+	// 4. check whether the endpoint is broken or not
+	for ep := range endpointsChan {
+		epClient := types.Endpoint2Client(ep)
 		epURI := baseURL + ep.Path
-		resp, err = epClient.DoRequest(epURI)
-		if err != nil {
+		resp1, err1 := epClient.DoRequest(epURI)
+		if err1 != nil {
 			continue
 		}
 
-		// Todo transfer response into VueTargetInfo and send it to outChannel
-		r.outChannel <- types.Result{
-			Response: resp.Response,
-		}
+		// Just output the information of each endpoint request
+		// and let user determine whether it is a broken access or not
+		r.outChannel <- types.NewEdRst(resp1)
 	}
 }
 
@@ -346,4 +313,146 @@ func (r *Runner) runVuePathCheck() {
 		}
 		page.MustClose()
 	}
+}
+
+// jsInformExtract find the all endpoint snippet and sensitive inform in the js file
+func (r *Runner) jsInformExtract(jsURIs []string) []string {
+	var (
+		endpoints     []string
+		sensitiveUniq = make(map[string]struct{})
+	)
+	reqClient := httpx.NewGetClient(r.options.Proxy, 10)
+
+	for _, jsUrl := range jsURIs {
+		resp, err := reqClient.DoRequest(jsUrl)
+		if err != nil {
+			gologger.Warning().Msgf("Can not access javascript file: %s\n", jsUrl)
+			continue
+		}
+
+		stringBody := resp.String()
+
+		for _, ector := range r.extractors {
+			ed := ector.Extract(stringBody)
+			switch ector.Type() {
+			case extracter.PATH:
+				endpoints = append(endpoints, ed...)
+			case extracter.SENSITIVE:
+				for _, sen := range ed {
+					if _, ok := sensitiveUniq[sen]; !ok {
+						sensitiveUniq[sen] = struct{}{}
+						r.outChannel <- types.Result{
+							TypeOfRst: types.SensitiveCheckType,
+							SensitiveRst: types.InspectSensitiveRst{
+								URL: jsUrl,
+								Msg: sen,
+							},
+						}
+					}
+				}
+			}
+		}
+	}
+	return endpoints
+}
+
+func (r *Runner) analyzeWithAi(edChan chan<- types.EndPoint, edpointsSnippets []string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	var (
+		loopCount = len(edpointsSnippets) / 20
+		aiWg      = sync.WaitGroup{}
+	)
+	// In order to avoid the long text input and long generate time,
+	// divide the endpointsKeyword into 20 endpointsKeyword for each input
+	if len(edpointsSnippets)%20 != 0 {
+		loopCount++
+	}
+	for i := 0; i < loopCount; i++ {
+		aiWg.Add(1)
+		go func(index int) {
+			defer aiWg.Done()
+
+			var input string
+			if index == loopCount-1 {
+				input = strings.Join(edpointsSnippets[index*20:], "\n")
+			} else {
+				input = strings.Join(edpointsSnippets[index*20:(index+1)*20], "\n")
+			}
+
+			endpointsFromAI, err := r.AIEngine.Generate(input)
+			if err != nil {
+				gologger.Error().Msgf("%s\n", err)
+				return
+			}
+			for _, ed := range endpointsFromAI {
+				edChan <- ed
+			}
+		}(i)
+	}
+
+	aiWg.Wait()
+}
+
+func (r *Runner) analyzeWithManual(jsType analyze.JavascriptType, edChan chan<- types.EndPoint, edpintsKeywords []string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	switch jsType {
+	case analyze.Ajax:
+		// Todo
+	case analyze.Webpack:
+		// todo
+	}
+}
+func findBaseURL(u, completeU string, pathes []string) string {
+	if completeU != "" {
+		l, baseurl := util.LongestCommonSubstring(u, completeU)
+		if l != 0 {
+			return baseurl
+		}
+		gologger.Debug().Msgf("Can not find common substring between %s and %s\n", u, completeU)
+	}
+	if len(pathes) == 0 {
+		return u
+	}
+	var (
+		subPathLists []string
+		baseURL      string
+	)
+	uu, err := url.Parse(u)
+	if err != nil {
+		gologger.Error().Msgf("Can not parse url: %s \n", u)
+		return ""
+	}
+	tmpBaseURL := fmt.Sprintf("%s://%s", uu.Scheme, uu.Host)
+	subPah := strings.Split(uu.Path, "/")
+	for i := 0; i < len(subPah); i++ {
+		subPathLists = append(subPathLists, strings.Join(subPah[:i+1], "/"))
+	}
+	tmpU := tmpBaseURL + pathes[0]
+	reqClient := httpx.NewGetClient("", 10)
+	resp, err := reqClient.DoRequest(tmpU)
+	if err != nil {
+		gologger.Error().Msgf("URL: %s can not access \n", tmpU)
+		gologger.Debug().
+			Msgf("Get base url error: %s\n", err)
+		return ""
+	}
+	// Content-Encoding: gzip can not get the content length field directly
+	//if resp.StatusCode == 200 && resp.ContentLength > 0 {
+	if resp.StatusCode == 200 {
+		baseURL = tmpBaseURL
+	} else {
+		for _, subPath := range subPathLists {
+			tmpU = tmpBaseURL + subPath + pathes[0]
+			resp, err = reqClient.DoRequest(tmpU)
+			if err != nil {
+				continue
+			}
+			if resp.StatusCode == 200 && resp.ContentLength > 0 {
+				baseURL = tmpBaseURL
+				break
+			}
+		}
+	}
+	return baseURL
 }

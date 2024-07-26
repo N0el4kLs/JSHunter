@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -32,20 +33,6 @@ func LoadTargets(path string) ([]string, error) {
 	return results, nil
 }
 
-func UniqueSlice(slice []string) []string {
-	var (
-		uniqueResult []string
-		tmp          = make(map[string]struct{})
-	)
-	for _, v := range slice {
-		if _, ok := tmp[v]; !ok {
-			uniqueResult = append(uniqueResult, v)
-			tmp[v] = struct{}{}
-		}
-	}
-	return uniqueResult
-}
-
 func URL2FileName(u string) string {
 	uu, _ := url.Parse(u)
 	fileName := uu.Host
@@ -64,4 +51,11 @@ func GetTemplateContent() string {
 {{.Detail}}
 `
 	return content
+}
+
+func FixPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(WorkDir, path)
 }

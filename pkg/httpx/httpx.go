@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"js-hunter/pkg/types"
-
 	"golang.org/x/exp/rand"
 
 	"github.com/imroc/req/v3"
@@ -42,7 +40,7 @@ type Client struct {
 
 // NewClient returns a new http client
 func NewClient(method, proxy string, timeout int) *Client {
-	c := req.C()
+	c := req.C().EnableInsecureSkipVerify()
 	c.SetTimeout(time.Duration(timeout) * time.Second)
 	if proxy != "" && checkProxyURL(proxy) {
 		c.SetProxyURL(proxy)
@@ -127,20 +125,6 @@ func (c *Client) SetPostBody(body interface{}) *Client {
 		c.SetHeader("Content-Type", "application/x-www-form-urlencoded")
 	}
 	c.Request.SetBody(body)
-	return c
-}
-
-func Endpoint2Client(point types.EndPoint) *Client {
-	// Todo endpoint proxy and timeout parameter should follow the global options
-	c := NewClient(point.Method, "", 10)
-	if point.QueryString != "" {
-		c.SetQuery(point.QueryString)
-	}
-
-	if point.Data != "" {
-		c.SetPostBody(point.Data)
-	}
-
 	return c
 }
 

@@ -73,8 +73,8 @@ func ParseOptions() (*Options, error) {
 		flagSet.BoolVar(&options.IsCheckAll, "ac", false, "Check both endpoints and vue paths"),
 		flagSet.BoolVar(&options.IsEndpointCheck, "ec", false, "Check for endpoints"),
 		flagSet.BoolVar(&options.IsVuePathCheck, "vc", false, "Check for vue paths"),
-		//flagSet.StringVar(&options.AiSource, "ai", "gemini",
-		//	"AI source to use for extracting endpoints.Only support gemini and gpt3 for now. Default is gemini."),
+		flagSet.StringVar(&options.AiSource, "ai", "",
+			"AI source to use for extracting endpoints.Only support gemini and gpt3 for now."),
 		flagSet.StringVar(&options.EnvPath, "env", ".env", "dot env file that store necessary token"),
 		//flagSet.StringVarP(&options.Proxy, "proxy", "p", "", "Proxy to use for the requests"),
 		//flagSet.IntVarP(&options.Timeout, "timeout", "t", 15, "Timeout in seconds for the requests"),
@@ -113,8 +113,12 @@ func ParseOptions() (*Options, error) {
 
 	if strings.ToLower(options.AiSource) == strings.ToLower(gemini.GEMINI) {
 		options.AiSource = gemini.GEMINI
-	} else if strings.ToLower(options.AiSource) != strings.ToLower(gpt.Gpt) {
+		gologger.Info().Msgf("Using %s as AI source\n", gemini.GEMINI)
+	} else if strings.ToLower(options.AiSource) == strings.ToLower(gpt.Gpt) {
 		options.AiSource = gpt.Gpt
+		gologger.Info().Msgf("Using %s as AI source\n", gpt.Gpt)
+	} else if options.AiSource == "" {
+		gologger.Info().Msgf("No AI source provided\n")
 	} else {
 		return nil, errors.New("unknown ai provider,only support gemini and gpt3 for now. Example: --ai gemini or --ai gpt")
 	}

@@ -1,27 +1,37 @@
 package types
 
-import "github.com/imroc/req/v3"
+import (
+	"js-hunter/pkg/httpx"
+
+	"github.com/imroc/req/v3"
+)
 
 type CheckType int
 
 const (
 	EndpointCheckType CheckType = 1 << iota
 	VuePathCheckType  CheckType = 1 << iota
+	SensitiveCheckType
 )
 
 var (
 	labels = map[CheckType]string{
-		EndpointCheckType: "ENDPOINT",
-		VuePathCheckType:  "VUEPATH",
+		EndpointCheckType:  "ENDPOINT",
+		VuePathCheckType:   "VUEPATH",
+		SensitiveCheckType: "SENSITIVE",
 	}
 )
 
+// Result output handler
 type Result struct {
 	// TypeOfRst output which type of result
 	TypeOfRst CheckType
 
 	// endpoint Checked result
 	EndpointRst InspectEndpointRst
+
+	//SensitiveRst sensitive information
+	SensitiveRst InspectSensitiveRst
 
 	// vue Checked result
 	VuePathRst InspectVuePathRst
@@ -51,8 +61,19 @@ type InspectVuePathRst struct {
 	ScreenshotName string
 }
 
-func NewEdRst() Result {
-	detail := InspectEndpointRst{}
+// InspectSensitiveRst the result of inspect senstive
+type InspectSensitiveRst struct {
+	URL string
+	Msg string
+}
+
+func NewEdRst(resp *httpx.Response) Result {
+	detail := InspectEndpointRst{
+		URL:           resp.Request.URL.String(),
+		Method:        resp.Request.Method,
+		StatusCode:    resp.StatusCode,
+		ContentLength: len(resp.String()),
+	}
 
 	return Result{
 		TypeOfRst:   EndpointCheckType,

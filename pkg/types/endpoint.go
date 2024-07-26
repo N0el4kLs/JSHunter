@@ -3,6 +3,8 @@ package types
 import (
 	"crypto/md5"
 	"encoding/hex"
+
+	"js-hunter/pkg/httpx"
 )
 
 // EndPoint is the struct that represents an endpoint
@@ -40,4 +42,18 @@ func (e *EndPoint) SetHash() {
 	h := md5.New()
 	h.Write([]byte(e.Path + e.Method + e.QueryString + e.Data))
 	e.Hash = hex.EncodeToString(h.Sum(nil))
+}
+
+func Endpoint2Client(point EndPoint) *httpx.Client {
+	// Todo endpoint proxy and timeout parameter should follow the global options
+	c := httpx.NewClient(point.Method, "", 10)
+	if point.QueryString != "" {
+		c.SetQuery(point.QueryString)
+	}
+
+	if point.Data != "" {
+		c.SetPostBody(point.Data)
+	}
+
+	return c
 }
