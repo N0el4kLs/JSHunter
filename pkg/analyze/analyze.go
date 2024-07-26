@@ -1,7 +1,6 @@
 package analyze
 
 import (
-	"errors"
 	"io"
 	"net/url"
 	"strings"
@@ -18,6 +17,14 @@ const (
 	Ajax
 )
 
+var (
+	BlackDomain = []string{
+		"wx.qq.com",
+		"vconsole.min.js",
+	}
+)
+
+// GetJavascriptType to finger out which type of javascript file is, and manual analysis will base on this result
 func GetJavascriptType(body string) JavascriptType {
 	if isWebpack(body) {
 		return Webpack
@@ -27,26 +34,26 @@ func GetJavascriptType(body string) JavascriptType {
 	return UnKnowType
 }
 
-func ParseJS(uu string, bodyBytes io.Reader) ([]string, string) {
-	// remote comment in html file
+// ExtractJS extract javascript resource from both script tag and link tag
+func ExtractJS(uu string, bodyBytes io.Reader) ([]string, string) {
+	// remove comment in html file
 	byteBody, _ := io.ReadAll(bodyBytes)
 	body := string(byteBody)
 	body = strings.ReplaceAll(body, "<!--", "")
 	body = strings.ReplaceAll(body, "-->", "")
-
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
 	if err != nil {
-		errors.New("fail to parse html")
+		gologger.Error().Msgf("can not parse ")
 	}
 
 	var (
 		completeURL   string
-		jsPaths       = []string{}
+		jsPaths       []string
 		uniqueJSPaths = make(map[string]struct{})
 	)
-	// load src from script tag
+	// get javascript source url from script tag
 	doc.Find("script").Each(func(i int, s *goquery.Selection) {
-		// Get the src attribute
+		// get the src attribute
 		src, exists := s.Attr("src")
 		if !exists {
 			return
@@ -68,7 +75,7 @@ func ParseJS(uu string, bodyBytes io.Reader) ([]string, string) {
 		gologger.Debug().Msgf("Script %d: src=%sn", i, src)
 	})
 
-	// load javascript from link tag
+	// get javascript resource url from link tag
 	doc.Find("link").Each(func(i int, s *goquery.Selection) {
 		// Get the src attribute
 		src, exists := s.Attr("href")
@@ -86,6 +93,7 @@ func ParseJS(uu string, bodyBytes io.Reader) ([]string, string) {
 	return jsPaths, completeURL
 }
 
+// inBlockDomain javascript file will not be recorded if it's name contain this keyword
 func inBlockDomain(s string) bool {
 	for _, domain := range BlackDomain {
 		if strings.Contains(s, domain) {

@@ -97,7 +97,7 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 	time.Sleep(2 * time.Second)
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
-	baseURL := c.foundBaseURL(page)
+	baseURL := c.findBaseURL(page)
 	gologger.Info().Msgf("find base url for %s: %s\n", t.URL, baseURL)
 
 	// find vue path
@@ -139,7 +139,7 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 	return t, page
 }
 
-// RouterBrokenAnalysis is a function to analysis if the vue router has broken access
+// RouterBrokenAnalysis is a function to analysis if the vue router has a broken access or not
 func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, items []types.VueRouterItem) chan types.Result {
 	var (
 		vueRouterRstChan = make(chan types.Result)
@@ -160,7 +160,7 @@ func (c *Crawler) RouterBrokenAnalysis(ctx context.Context, items []types.VueRou
 	return vueRouterRstChan
 }
 
-func (c *Crawler) foundBaseURL(p *rod.Page) string {
+func (c *Crawler) findBaseURL(p *rod.Page) string {
 	var baseURL string
 	href := p.MustEval(c.injectionJS["href"]).Str()
 	if strings.Contains(href, "#") {
@@ -305,13 +305,11 @@ func fixBaseURl(s string) string {
 	}
 }
 
-// tokenizer the current URL, for example:
+// tokenizerURL tokenizer the current URL, for example:
 // input: https://examle.com/#/login?redirect=%2FauditDetail
 // output:
 // baseURL: https://examle.com/#/login
 // uriToken: https://examle.com/#/login?redirect={REDIRECT}
-//
-// Todo need to handle uri without frag like: http://example.com/login
 // If uri has no frag, then uriToken is NO_REDIRECT
 func tokenizerURL(s string) (string, string) {
 	var (
@@ -354,6 +352,7 @@ func tokenizerURL(s string) (string, string) {
 	return baseURI, uriToken
 }
 
+// isBrokenAccess core to determine whether the item is a broken access or not
 func isBrokenAccess(item types.VueRouterItem) bool {
 	// if satisfy the following conditions at the same time, regard it as a broken access
 	// 1. token contains NO_REDIRECT

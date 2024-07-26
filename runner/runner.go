@@ -25,6 +25,7 @@ import (
 	"github.com/remeh/sizedwaitgroup"
 )
 
+// Runner a client for running process
 type Runner struct {
 	options *Options
 
@@ -34,7 +35,7 @@ type Runner struct {
 	// AIEngine which ai source will be used for helping to analyze
 	AIEngine llm.AIProvider
 
-	// MaxGoroutines to limit the max number of URLs while handling
+	// MaxGoroutines to limit the max number of URLs while endpoints handling
 	MaxGoroutines *sizedwaitgroup.SizedWaitGroup
 
 	// outChannel all result should send to this channel
@@ -62,6 +63,7 @@ type Runner struct {
 	processWg sync.WaitGroup
 }
 
+// NewRunner a construct function to create Runner
 func NewRunner(option *Options) (*Runner, error) {
 	runner := &Runner{
 		options: option,
@@ -130,6 +132,7 @@ func NewRunner(option *Options) (*Runner, error) {
 	return runner, nil
 }
 
+// Run core to handle the process
 func (r *Runner) Run() error {
 	// start result handle process
 	go func() {
@@ -143,22 +146,18 @@ func (r *Runner) Run() error {
 		}
 	}()
 
-	// start corresponding job
+	// start corresponding consumer to handle jobs
 	if r.vueTaskChan != nil {
 		r.processWg.Add(1)
-
-		go r.runVuePathCheck()
+		go r.runVueRouterCheck()
 	}
-
 	if r.endpointTaskChan != nil {
 		r.processWg.Add(1)
-
-		go r.checkEndpoint()
+		go r.runEndpointCheck()
 	}
 
+	// producer to create jobs
 	for _, u := range r.URLs {
-		// Todo there is problem that endpoint has two analysis method, regexp and ai source
-		// In this condition, judge ai source only, need improve later
 		if r.endpointTaskChan != nil {
 			r.endpointTaskChan <- u
 		}
@@ -172,12 +171,13 @@ func (r *Runner) Run() error {
 	// producer is over
 	r.closeTaskQueue()
 
-	// wait vue path check process and endpoint check process done
+	// wait vue router check process and endpoint check process done
 	r.processWg.Wait()
 
 	return nil
 }
 
+// Close releases all the resources and cleans up
 func (r *Runner) Close() {
 	close(r.outChannel)
 	<-r.outputOver
@@ -187,7 +187,7 @@ func (r *Runner) Close() {
 	r.writer.Close()
 }
 
-// closeTaskQueue
+// closeTaskQueue release task channel
 func (r *Runner) closeTaskQueue() {
 	if r.endpointTaskChan != nil {
 		close(r.endpointTaskChan)
@@ -197,7 +197,46 @@ func (r *Runner) closeTaskQueue() {
 	}
 }
 
-func (r *Runner) runEndpointCheck(u string) {
+func (r *Runner) runEndpointCheck() {
+	defer func() {
+		r.processWg.Done()
+		gologger.Debug().Msgf("Endpoint task done.")
+	}()
+
+	gologger.Info().Msgf("Start endpoint check...\n")
+
+	for endpointCheckTask := range r.endpointTaskChan {
+		r.MaxGoroutines.Add()
+		go r.endpointCheckCore(endpointCheckTask)
+	}
+
+	r.MaxGoroutines.Wait()
+}
+
+func (r *Runner) runVueRouterCheck() {
+	defer func() {
+		r.processWg.Done()
+		gologger.Debug().Msgf("Vue path task done.")
+	}()
+
+	gologger.Info().Msgf("Start vue path check...\n")
+
+	for vueCheckTask := range r.vueTaskChan {
+		currentTask, page := r.crawlerEngine.GetAllVueRouters(vueCheckTask)
+
+		// if find vue router
+		if len(currentTask.Subs) > 0 {
+			ctx, checkItems := headless.PrepareRouterCheck(currentTask)
+			rets := r.crawlerEngine.RouterBrokenAnalysis(ctx, checkItems)
+			for ret := range rets {
+				r.outChannel <- ret
+			}
+		}
+		page.MustClose()
+	}
+}
+
+func (r *Runner) endpointCheckCore(u string) {
 	defer r.MaxGoroutines.Done()
 
 	// 1. check target connection
@@ -214,7 +253,7 @@ func (r *Runner) runEndpointCheck(u string) {
 		baseURL string
 		jsURIs  []string
 	)
-	jsPaths, completeU := analyze.ParseJS(u, resp.Body)
+	jsPaths, completeU := analyze.ExtractJS(u, resp.Body)
 	gologger.Info().Msgf("Find %d Javascript file in %s \n", len(jsPaths), u)
 
 	baseURL = findBaseURL(u, completeU, jsPaths)
@@ -276,46 +315,7 @@ func (r *Runner) runEndpointCheck(u string) {
 	}
 }
 
-func (r *Runner) checkEndpoint() {
-	defer func() {
-		r.processWg.Done()
-		gologger.Debug().Msgf("Endpoint task done.")
-	}()
-
-	gologger.Info().Msgf("Start endpoint check...\n")
-
-	for endpointCheckTask := range r.endpointTaskChan {
-		r.MaxGoroutines.Add()
-		go r.runEndpointCheck(endpointCheckTask)
-	}
-
-	r.MaxGoroutines.Wait()
-}
-
-func (r *Runner) runVuePathCheck() {
-	defer func() {
-		r.processWg.Done()
-		gologger.Debug().Msgf("Vue path task done.")
-	}()
-
-	gologger.Info().Msgf("Start vue path check...\n")
-
-	for vueCheckTask := range r.vueTaskChan {
-		currentTask, page := r.crawlerEngine.GetAllVueRouters(vueCheckTask)
-
-		// if find vue router
-		if len(currentTask.Subs) > 0 {
-			ctx, checkItems := headless.PrepareRouterCheck(currentTask)
-			rets := r.crawlerEngine.RouterBrokenAnalysis(ctx, checkItems)
-			for ret := range rets {
-				r.outChannel <- ret
-			}
-		}
-		page.MustClose()
-	}
-}
-
-// jsInformExtract find the all endpoint snippet and sensitive inform in the js file
+// jsInformExtract find the all endpoint snippets and sensitive information from the js file
 func (r *Runner) jsInformExtract(jsURIs []string) []string {
 	var (
 		endpoints     []string
@@ -403,6 +403,17 @@ func (r *Runner) analyzeWithManual(jsType analyze.JavascriptType, edChan chan<- 
 		// todo
 	}
 }
+
+// findBaseURL there are two ways to find the base url,
+// 1.Find the base url based on target url and complete Javascript resource url. For example:
+// if target url is: http://example.com/login,
+// and one javascript resource url from ExtractJS is: http://example.com/js/app.main.js
+// so regard the base url is: http://example.com/
+// 2.If no complete javascript resource url, try to loop path to find the available javascript
+// resource url and regard the current path is the base url. For example:
+// wonder if target url is: http://example.com/index/login, js path extracted from script or link tag is: ./src/js/app.js
+// if http://example.com/src/js/app.js is available, the base url is http://example.com/
+// else if http://example.com/index/src/js/app.js is available, the base url is http://example.com/index/
 func findBaseURL(u, completeU string, pathes []string) string {
 	if completeU != "" {
 		l, baseurl := util.LongestCommonSubstring(u, completeU)
@@ -424,7 +435,7 @@ func findBaseURL(u, completeU string, pathes []string) string {
 		return ""
 	}
 	tmpBaseURL := fmt.Sprintf("%s://%s", uu.Scheme, uu.Host)
-	subPah := strings.Split(uu.Path, "/")
+	subPah := strings.Split(uu.Path, "/")[1:]
 	for i := 0; i < len(subPah); i++ {
 		subPathLists = append(subPathLists, strings.Join(subPah[:i+1], "/"))
 	}
@@ -432,13 +443,10 @@ func findBaseURL(u, completeU string, pathes []string) string {
 	reqClient := httpx.NewGetClient("", 10)
 	resp, err := reqClient.DoRequest(tmpU)
 	if err != nil {
-		gologger.Error().Msgf("URL: %s can not access \n", tmpU)
-		gologger.Debug().
-			Msgf("Get base url error: %s\n", err)
 		return ""
 	}
-	// Content-Encoding: gzip can not get the content length field directly
-	//if resp.StatusCode == 200 && resp.ContentLength > 0 {
+	// if response has header: Content-Encoding: gzip ,
+	// this means can not get the content length field from Response.ContentLength directly
 	if resp.StatusCode == 200 {
 		baseURL = tmpBaseURL
 	} else {
@@ -448,7 +456,7 @@ func findBaseURL(u, completeU string, pathes []string) string {
 			if err != nil {
 				continue
 			}
-			if resp.StatusCode == 200 && resp.ContentLength > 0 {
+			if resp.StatusCode == 200 && len(resp.String()) > 0 {
 				baseURL = tmpBaseURL
 				break
 			}

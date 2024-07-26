@@ -4,13 +4,6 @@ import (
 	"strings"
 )
 
-var (
-	BlackDomain = []string{
-		"wx.qq.com",
-		"vconsole.min.js",
-	}
-)
-
 func isWebpack(body string) bool {
 	htmlFeatures := []string{"<noscript",
 		"webpackJsonp",
