@@ -26,12 +26,13 @@ const (
 	GenerateTag = "---END_OF_GENERATE---"
 )
 
-type callBack func(ctx context.Context, client *genai.Client) (interface{}, error)
+type callBack func(context.Context, *genai.Client) (interface{}, error)
 
 var (
-	EmptyKeyError  = errors.New("gemini api key can not empty")
-	ValidKeyError  = errors.New("gemini api key can't work, please make sure the key is still alive")
-	PromptTemplate = `As a bug bounty hunter, your task is to analyze a JavaScript file from front-end and extract endpoints, parameters,and secret keys to explore potential threats and vulnerabilities in a website. So you should:
+	EmptyKeyError = errors.New("gemini api key can not empty")
+	//ValidKeyError        = errors.New("gemini api key can't work, please make sure the key is still alive")
+	EmptyGenContentError = errors.New("no generated content from gemini")
+	PromptTemplate       = `As a bug bounty hunter, your task is to analyze a JavaScript file from front-end and extract endpoints, parameters,and secret keys to explore potential threats and vulnerabilities in a website. So you should:
 1. Carefully examine the provided JavaScript file or snippet of Javascript code.
 2. Identify and extract all endpoints mentioned within the file or Javascript Code.
 3. Locate and extract parameters associated with each endpoint.
@@ -113,43 +114,59 @@ func (p Provider) Name() string {
 	return GEMINI
 }
 
-func (p Provider) Auth() error {
+func (p Provider) Auth(ctx context.Context) error {
 	var err error
 	if key := os.Getenv("Gemini_API_KEY"); key == "" {
 		return EmptyKeyError
 	}
 
-	_, err = generate("This is a api connection test.", authCallback)
+	_, err = generate(ctx, "This is a api connection test.", authCallback)
 	return err
 }
 
-func (p Provider) Generate(input string) ([]types.EndPoint, error) {
-	res, err := generate(input, handleEndpointCallback)
+func (p Provider) Generate(ctx context.Context, input string) ([]types.EndPoint, error) {
+	res, err := generate(ctx, input, handleEndpointCallback)
 	return res.([]types.EndPoint), err
 }
 
-func generate(input string, back callBack) (interface{}, error) {
+func generate(ctx context.Context, input string, back callBack) (interface{}, error) {
 	// Is it a good way to save the input value in the context?
-	ctx := context.WithValue(context.Background(), "input", input)
+	cctx := context.WithValue(ctx, "input", input)
 	client, err := genGeminiClient()
 	if err != nil {
-		return client, err
+		return nil, err
 	}
 	defer client.Close()
 
-	return back(ctx, client)
+	return back(cctx, client)
 }
 
 func authCallback(ctx context.Context, client *genai.Client) (interface{}, error) {
 	model := client.GenerativeModel("gemini-1.5-pro")
 	prompt := ctx.Value("input").(string)
 
-	return model.GenerateContent(ctx, genai.Text(prompt))
+	var (
+		result     any
+		err        error
+		overSignal = make(chan struct{})
+	)
+
+	go func() {
+		result, err = model.GenerateContent(ctx, genai.Text(prompt))
+		overSignal <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		err = errors.New("generate timeout")
+	case <-overSignal:
+
+	}
+
+	return result, err
 }
 
 func handleEndpointCallback(ctx context.Context, client *genai.Client) (interface{}, error) {
-	var endpoints []types.EndPoint
-
 	model := client.GenerativeModel("gemini-1.5-flash")
 	// This setting is used to solve error: blocked: candidate: FinishReasonSafety
 	// https://ai.google.dev/gemini-api/docs/safety-settings?hl=zh-cn
@@ -172,7 +189,7 @@ func handleEndpointCallback(ctx context.Context, client *genai.Client) (interfac
 		},
 	}
 	prompt := fmt.Sprintf(PromptTemplate, ctx.Value("input").(string))
-	promptParts := strings.SplitAfter(prompt, "as the end signal")
+	promptParts := strings.SplitAfter(prompt, "as the end signal.")
 	cs := model.StartChat()
 	cs.History = []*genai.Content{
 		&genai.Content{
@@ -184,48 +201,69 @@ func handleEndpointCallback(ctx context.Context, client *genai.Client) (interfac
 	}
 
 	var (
+		err                  error
 		allGeneratedContents string
 		currentPrompt        string
+		endpoints            []types.EndPoint
+		overSignal           = make(chan struct{})
 	)
-	currentPrompt = promptParts[1]
-	for {
-		resp, err := cs.SendMessage(ctx, genai.Text(currentPrompt))
-		if err != nil {
-			break
-		}
-		if resp.Candidates[0].Content == nil {
-			gologger.Warning().Msgf("Gemini generate no content\n")
-			break
-		}
-		text := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
-		unFormatText := text
-		//gologger.Debug().Msgf("%s\n", unFormatText)
-		if strings.HasPrefix(text, "```json") {
-			text = strings.TrimPrefix(text, "```json")
-		}
-		if strings.HasSuffix(text, "```") {
-			text = strings.TrimSuffix(text, "```")
-		}
-		if !strings.HasSuffix(text, GenerateTag) {
-			allGeneratedContents += text
-			cs.History = append(cs.History,
-				&genai.Content{
-					Parts: []genai.Part{
-						genai.Text(unFormatText),
-					},
-					Role: GeminiBot,
-				},
-			)
-			currentPrompt = "Continue generate"
-			continue
-		}
-		text = strings.ReplaceAll(text, GenerateTag, "")
-		allGeneratedContents += text
-		break
-	}
 
-	gologger.Debug().Msgf("All generatedContents is %s\n", allGeneratedContents)
-	err := json.Unmarshal([]byte(allGeneratedContents), &endpoints)
+	go func() {
+		currentPrompt = strings.TrimSpace(promptParts[1])
+		for {
+			resp, err := cs.SendMessage(ctx, genai.Text(currentPrompt))
+			if err != nil {
+				gologger.Debug().Msgf("Gemini generate content error: %s\n", err)
+				break
+			}
+			if resp.Candidates[0].Content == nil {
+				gologger.Debug().Msgf("Gemini generate no content\n")
+				break
+			}
+			text := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
+			unFormatText := text
+			if strings.HasPrefix(text, "```json") {
+				text = strings.TrimPrefix(text, "```json")
+			}
+			if strings.HasSuffix(text, "```") {
+				text = strings.TrimSuffix(text, "```")
+			}
+			text = strings.TrimSpace(text)
+			if !strings.HasSuffix(text, GenerateTag) || !strings.Contains(text, GenerateTag) {
+				allGeneratedContents += text
+				cs.History = append(cs.History,
+					&genai.Content{
+						Parts: []genai.Part{
+							genai.Text(unFormatText),
+						},
+						Role: GeminiBot,
+					},
+				)
+				currentPrompt = "Continue generate"
+				continue
+			}
+			text = strings.ReplaceAll(text, GenerateTag, "")
+			allGeneratedContents += strings.TrimSpace(text)
+			break
+		}
+
+		if allGeneratedContents != "" {
+			err = json.Unmarshal([]byte(allGeneratedContents), &endpoints)
+			if err != nil {
+				gologger.Debug().Msgf("unmarshal ai output error:%s\n", err)
+				gologger.Debug().Msgf("All generatedContents is %s\n", allGeneratedContents)
+			}
+		} else {
+			err = EmptyGenContentError
+		}
+		overSignal <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		err = errors.New("generate timeout")
+	case <-overSignal:
+	}
 
 	return endpoints, err
 }

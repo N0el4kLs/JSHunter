@@ -2,8 +2,6 @@ package types
 
 import (
 	"js-hunter/pkg/httpx"
-
-	"github.com/imroc/req/v3"
 )
 
 type CheckType int
@@ -37,7 +35,7 @@ type Result struct {
 	VuePathRst InspectVuePathRst
 
 	// tmp record resp
-	*req.Response
+	*httpx.Response
 }
 
 // InspectEndpointRst the result of inspecting endpoint
@@ -78,6 +76,7 @@ func NewEdRst(resp *httpx.Response) Result {
 	return Result{
 		TypeOfRst:   EndpointCheckType,
 		EndpointRst: detail,
+		Response:    resp,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"js-hunter/pkg/types"
@@ -31,11 +32,15 @@ func (w *Writer) DefaultWriter(rst types.Result) {
 	var builder strings.Builder
 
 	if rst.TypeOfRst&types.EndpointCheckType == types.EndpointCheckType {
-		builder.WriteString(rst.Response.Request.URL.String())
+		builder.WriteString(rst.EndpointRst.URL)
 
 		builder.WriteString(" [")
-		builder.WriteString(rst.Response.Request.Method)
-		builder.WriteString(" ] ")
+		builder.WriteString(rst.EndpointRst.Method)
+		builder.WriteString("] ")
+
+		builder.WriteString("[")
+		builder.WriteString(strconv.Itoa(rst.EndpointRst.StatusCode))
+		builder.WriteString("] ")
 	}
 
 	if rst.TypeOfRst&types.SensitiveCheckType == types.SensitiveCheckType {

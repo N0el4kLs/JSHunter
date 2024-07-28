@@ -1,13 +1,15 @@
 package llm
 
 import (
+	"context"
+
 	"js-hunter/pkg/types"
 )
 
 type AIProvider interface {
 	Name() string
-	Auth() error
-	Generate(string) ([]types.EndPoint, error)
+	Auth(context.Context) error
+	Generate(context.Context, string) ([]types.EndPoint, error)
 }
 
 type AIEngine struct {

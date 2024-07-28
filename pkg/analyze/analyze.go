@@ -69,12 +69,20 @@ func ExtractJS(uu string, bodyBytes io.Reader) ([]string, string) {
 			}
 			if _, ok := uniqueJSPaths[src]; !ok {
 				uniqueJSPaths[src] = struct{}{}
+				// make sure the referer js file is not start with ./ or /
+				if strings.HasPrefix(src, "./") {
+					src = strings.TrimPrefix(src, "./")
+				}
+				if strings.HasPrefix(src, "/") {
+					src = strings.TrimPrefix(src, "/")
+				}
 				jsPaths = append(jsPaths, src)
 			}
 		}
 		gologger.Debug().Msgf("Script %d: src=%sn", i, src)
 	})
 
+	// Todo optimizer extract function
 	// get javascript resource url from link tag
 	doc.Find("link").Each(func(i int, s *goquery.Selection) {
 		// Get the src attribute
@@ -83,6 +91,13 @@ func ExtractJS(uu string, bodyBytes io.Reader) ([]string, string) {
 			if strings.HasSuffix(src, ".js") {
 				if _, ok := uniqueJSPaths[src]; !ok {
 					uniqueJSPaths[src] = struct{}{}
+					// make sure the referer js file is not start with ./ or /
+					if strings.HasPrefix(src, "./") {
+						src = strings.TrimPrefix(src, "./")
+					}
+					if strings.HasPrefix(src, "/") {
+						src = strings.TrimPrefix(src, "/")
+					}
 					jsPaths = append(jsPaths, src)
 				}
 			}

@@ -1,11 +1,13 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"js-hunter/pkg/analyze"
 	"js-hunter/pkg/extracter"
@@ -93,12 +95,15 @@ func NewRunner(option *Options) (*Runner, error) {
 		switch option.AiSource {
 		case gemini.GEMINI:
 			geminiEngine := gemini.Provider{}
-			err = geminiEngine.Auth()
+			ctx, cancel := context.WithTimeout(context.TODO(), 30*time.Second)
+			err = geminiEngine.Auth(ctx)
 			if err != nil {
+				cancel()
 				return runner, err
 			}
 			runner.AIEngine = geminiEngine
 			gologger.Info().Msgf("Gemini ai source is ready...\n")
+			cancel()
 			//case gpt.Gpt:
 			//	runner.AIEngine = gpt.Provider{}
 		}
@@ -137,6 +142,7 @@ func (r *Runner) Run() error {
 	// start result handle process
 	go func() {
 		defer func() {
+			gologger.Debug().Msgf("Output channel over.\n")
 			r.outputOver <- struct{}{}
 			gologger.Debug().Msgf("Output channel over.\n")
 		}()
@@ -280,8 +286,9 @@ func (r *Runner) endpointCheckCore(u string) {
 
 	// 3. analyze endpoints
 	var (
-		endpointsChan     = make(chan types.EndPoint)
-		analysisProcessWg = &sync.WaitGroup{}
+		endpointsChan           = make(chan types.EndPoint)
+		endpointsBrokenAccessMg = sizedwaitgroup.New(50)
+		analysisProcessWg       = &sync.WaitGroup{}
 	)
 	// 3.1 use Ai engine to analyze endpoints
 	if r.AIEngine != nil {
@@ -302,17 +309,24 @@ func (r *Runner) endpointCheckCore(u string) {
 
 	// 4. check whether the endpoint is broken or not
 	for ep := range endpointsChan {
-		epClient := types.Endpoint2Client(ep)
-		epURI := baseURL + ep.Path
-		resp1, err1 := epClient.DoRequest(epURI)
-		if err1 != nil {
-			continue
-		}
+		endpointsBrokenAccessMg.Add()
 
-		// Just output the information of each endpoint request
-		// and let user determine whether it is a broken access or not
-		r.outChannel <- types.NewEdRst(resp1)
+		go func(eep types.EndPoint) {
+			defer endpointsBrokenAccessMg.Done()
+			epClient := types.Endpoint2Client(eep)
+			epURI := baseURL + eep.Path
+			resp1, err1 := epClient.DoRequest(epURI)
+			if err1 != nil {
+				return
+			}
+
+			// Just output the information of each endpoint request
+			// and let user determine whether it is a broken access or not
+			r.outChannel <- types.NewEdRst(resp1)
+		}(ep)
 	}
+	gologger.Debug().Msgf("Output channel over.\n")
+	endpointsBrokenAccessMg.Wait()
 }
 
 // jsInformExtract find the all endpoint snippets and sensitive information from the js file
@@ -361,7 +375,7 @@ func (r *Runner) analyzeWithAi(edChan chan<- types.EndPoint, edpointsSnippets []
 
 	var (
 		loopCount = len(edpointsSnippets) / 20
-		aiWg      = sync.WaitGroup{}
+		//aiWg      = sync.WaitGroup{}
 	)
 	// In order to avoid the long text input and long generate time,
 	// divide the endpointsKeyword into 20 endpointsKeyword for each input
@@ -369,29 +383,26 @@ func (r *Runner) analyzeWithAi(edChan chan<- types.EndPoint, edpointsSnippets []
 		loopCount++
 	}
 	for i := 0; i < loopCount; i++ {
-		aiWg.Add(1)
-		go func(index int) {
-			defer aiWg.Done()
+		var input string
+		if i == loopCount-1 {
+			input = strings.Join(edpointsSnippets[i*20:], "\n")
+		} else {
+			input = strings.Join(edpointsSnippets[i*20:(i+1)*20], "\n")
+		}
 
-			var input string
-			if index == loopCount-1 {
-				input = strings.Join(edpointsSnippets[index*20:], "\n")
-			} else {
-				input = strings.Join(edpointsSnippets[index*20:(index+1)*20], "\n")
-			}
-
-			endpointsFromAI, err := r.AIEngine.Generate(input)
-			if err != nil {
-				gologger.Error().Msgf("%s\n", err)
-				return
-			}
-			for _, ed := range endpointsFromAI {
-				edChan <- ed
-			}
-		}(i)
+		ctx, cancel := context.WithTimeout(context.TODO(), 60*time.Second)
+		endpointsFromAI, err := r.AIEngine.Generate(ctx, input)
+		if err != nil {
+			gologger.Warning().Msgf("get endpoints struct from ai error: %s\n", err)
+			cancel()
+			continue
+		}
+		for _, ed := range endpointsFromAI {
+			edChan <- ed
+		}
+		cancel()
+		gologger.Debug().Msgf("AI generate endpoints done: %v\n", i)
 	}
-
-	aiWg.Wait()
 }
 
 func (r *Runner) analyzeWithManual(jsType analyze.JavascriptType, edChan chan<- types.EndPoint, edpintsKeywords []string, wg *sync.WaitGroup) {
@@ -434,7 +445,7 @@ func findBaseURL(u, completeU string, pathes []string) string {
 		gologger.Error().Msgf("Can not parse url: %s \n", u)
 		return ""
 	}
-	tmpBaseURL := fmt.Sprintf("%s://%s", uu.Scheme, uu.Host)
+	tmpBaseURL := fmt.Sprintf("%s://%s/", uu.Scheme, uu.Host)
 	subPah := strings.Split(uu.Path, "/")[1:]
 	for i := 0; i < len(subPah); i++ {
 		subPathLists = append(subPathLists, strings.Join(subPah[:i+1], "/"))
