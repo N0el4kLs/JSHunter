@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var (
@@ -58,4 +59,11 @@ func FixPath(path string) string {
 		return path
 	}
 	return filepath.Join(WorkDir, path)
+}
+
+// GenEdResultFilename generate endpoint report file name based on time
+// for example: 2006-01-02_15-04-05.md
+func GenEdResultFilename() string {
+	now := time.Now()
+	return now.Format("2006-01-02_15-04-05") + ".md"
 }

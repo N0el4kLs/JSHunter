@@ -142,7 +142,6 @@ func (r *Runner) Run() error {
 	// start result handle process
 	go func() {
 		defer func() {
-			gologger.Debug().Msgf("Output channel over.\n")
 			r.outputOver <- struct{}{}
 			gologger.Debug().Msgf("Output channel over.\n")
 		}()
@@ -325,7 +324,6 @@ func (r *Runner) endpointCheckCore(u string) {
 			r.outChannel <- types.NewEdRst(resp1)
 		}(ep)
 	}
-	gologger.Debug().Msgf("Output channel over.\n")
 	endpointsBrokenAccessMg.Wait()
 }
 

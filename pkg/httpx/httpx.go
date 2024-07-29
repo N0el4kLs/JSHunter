@@ -40,7 +40,8 @@ type Client struct {
 
 // NewClient returns a new http client
 func NewClient(method, proxy string, timeout int) *Client {
-	c := req.C().EnableInsecureSkipVerify()
+	c := req.C().EnableInsecureSkipVerify().
+		SetRedirectPolicy(req.NoRedirectPolicy())
 	c.SetTimeout(time.Duration(timeout) * time.Second)
 	if proxy != "" && checkProxyURL(proxy) {
 		c.SetProxyURL(proxy)
@@ -85,7 +86,8 @@ func (c *Client) DoRequest(u string) (*Response, error) {
 
 	c.Request.SetRetryCount(c.MaxRedirect).
 		SetRetryBackoffInterval(1*time.Second, 5*time.Second).
-		SetRetryFixedInterval(2 * time.Second)
+		SetRetryFixedInterval(2 * time.Second).
+		EnableDump()
 
 	for k, v := range c.Headers {
 		c.Request.SetHeader(k, v)
