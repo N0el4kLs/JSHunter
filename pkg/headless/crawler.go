@@ -119,8 +119,8 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 		if strings.Contains(path, "*") || strings.Contains(path, ":") {
 			continue
 		}
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
+		if strings.HasPrefix(path, "/") {
+			path = strings.TrimPrefix(path, "/")
 		}
 		router := fmt.Sprintf("%s%s", baseURL, path)
 		tmp = append(tmp, router)
@@ -183,11 +183,13 @@ func (c *Crawler) findBaseURL(p *rod.Page) string {
 			src, exists := s.Attr("src")
 			if exists {
 				if strings.HasSuffix(src, ".js") && !strings.HasPrefix(src, "http") {
-					if !strings.HasPrefix(src, "/") {
-						firstScriptSrc = "/" + src
-					} else {
-						firstScriptSrc = src
+					if strings.HasPrefix(src, "./") {
+						src = strings.TrimPrefix(src, "./")
 					}
+					if strings.HasPrefix(src, "/") {
+						src = strings.TrimPrefix(src, "/")
+					}
+					firstScriptSrc = src
 					return
 				}
 			}
@@ -197,8 +199,8 @@ func (c *Crawler) findBaseURL(p *rod.Page) string {
 		if err != nil {
 			gologger.Error().Msgf("Can not parse url: %s \n", href)
 		}
-		tmpBaseURL := fmt.Sprintf("%s://%s", uu.Scheme, uu.Host)
-		subPah := strings.Split(uu.Path, "/")
+		tmpBaseURL := fmt.Sprintf("%s://%s/", uu.Scheme, uu.Host)
+		subPah := strings.Split(uu.Path, "/")[1:]
 		for i := 0; i < len(subPah); i++ {
 			subPathLists = append(subPathLists, strings.Join(subPah[:i+1], "/"))
 		}

@@ -84,7 +84,20 @@ func NewRunner(option *Options) (*Runner, error) {
 		runner.URLs = append(runner.URLs, urls...)
 	}
 
-	if option.AiSource != "" && (option.IsEndpointCheck || option.IsCheckAll) {
+	// initialize option for vue path check
+	if option.IsVuePathCheck || option.IsCheckAll {
+		runner.crawlerEngine = headless.NewCrawler(option.IsHeadless)
+		runner.vueTaskChan = make(chan *types.Task, 30)
+	}
+	if option.IsEndpointCheck || option.IsCheckAll {
+		runner.endpointTaskChan = make(chan string)
+		// load extractors
+		if len(extracter.Extractors) == 0 {
+			return runner, errors.New("not regexp extractor loaded")
+		}
+		runner.extractors = extracter.Extractors
+
+		// load ai source
 		envPath := util.FixPath(option.EnvPath)
 		gologger.Info().Msgf("Load env file from: %s\n", envPath)
 		err := godotenv.Load(envPath)
@@ -107,22 +120,6 @@ func NewRunner(option *Options) (*Runner, error) {
 			//case gpt.Gpt:
 			//	runner.AIEngine = gpt.Provider{}
 		}
-	}
-
-	// load extractors
-	if len(extracter.Extractors) == 0 {
-		return runner, errors.New("not regexp extractor loaded")
-	}
-	runner.extractors = extracter.Extractors
-
-	// initialize option for vue path check
-	if option.IsVuePathCheck || option.IsCheckAll {
-		runner.crawlerEngine = headless.NewCrawler(option.IsHeadless)
-		runner.vueTaskChan = make(chan *types.Task, 30)
-	}
-
-	if option.IsEndpointCheck || option.IsCheckAll {
-		runner.endpointTaskChan = make(chan string)
 	}
 
 	// Max goroutines to handle urls

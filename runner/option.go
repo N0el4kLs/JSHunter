@@ -111,6 +111,10 @@ func ParseOptions() (*Options, error) {
 		return nil, errors.New("must choose a scan type")
 	}
 
+	if (options.IsCheckAll || options.IsEndpointCheck) && options.AiSource == "" {
+		return nil, errors.New("must provide an AI source")
+	}
+
 	if strings.ToLower(options.AiSource) == strings.ToLower(gemini.GEMINI) {
 		options.AiSource = gemini.GEMINI
 		gologger.Info().Msgf("Using %s as AI source\n", gemini.GEMINI)
