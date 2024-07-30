@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"js-hunter/pkg/llm/gemini"
-	"js-hunter/pkg/llm/gpt"
 
 	"github.com/projectdiscovery/goflags"
 	"github.com/projectdiscovery/gologger"
@@ -118,9 +117,9 @@ func ParseOptions() (*Options, error) {
 	if strings.ToLower(options.AiSource) == strings.ToLower(gemini.GEMINI) {
 		options.AiSource = gemini.GEMINI
 		gologger.Info().Msgf("Using %s as AI source\n", gemini.GEMINI)
-	} else if strings.ToLower(options.AiSource) == strings.ToLower(gpt.Gpt) {
-		options.AiSource = gpt.Gpt
-		gologger.Info().Msgf("Using %s as AI source\n", gpt.Gpt)
+		//} else if strings.ToLower(options.AiSource) == strings.ToLower(gpt.Gpt) {
+		//	options.AiSource = gpt.Gpt
+		//	gologger.Info().Msgf("Using %s as AI source\n", gpt.Gpt)
 	} else if options.AiSource == "" {
 		gologger.Info().Msgf("No AI source provided\n")
 	} else {
