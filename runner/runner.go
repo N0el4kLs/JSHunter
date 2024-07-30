@@ -226,6 +226,10 @@ func (r *Runner) runVueRouterCheck() {
 	for vueCheckTask := range r.vueTaskChan {
 		currentTask, page := r.crawlerEngine.GetAllVueRouters(vueCheckTask)
 
+		if page == nil {
+			continue
+		}
+
 		// if find vue router
 		if len(currentTask.Subs) > 0 {
 			ctx, checkItems := headless.PrepareRouterCheck(currentTask)

@@ -55,7 +55,11 @@ func NewCrawler(isHeadless bool) *Crawler {
 	chromeOptions = chromeOptions.Append("disable-extensions", "")
 	chromeOptions.Set("disable-web-security")
 	chromeOptions.Set("allow-running-insecure-content")
-	chromeOptions.Set("reduce-security-for-testing")
+	chromeOptions.Set("reduce-security-for-testing").
+		Set("ignore-certificate-errors", "true").
+		Set("disable-notifications", "true").
+		Set("incognito", "true").
+		Set("mute-audio", "true")
 
 	browser := rod.New()
 	err := browser.
@@ -82,14 +86,19 @@ func NewCrawler(isHeadless bool) *Crawler {
 
 // GetAllVueRouters use chromium to load target and inject javascript to get all vue routers
 func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
+	var (
+		page *rod.Page
+	)
+
 	defer func() {
 		// handle navigation failed: net::ERR_NAME_NOT_RESOLVED
 		if err := recover(); err != nil {
-			gologger.Error().Msgf("URL %s error: %s\n", t.URL, err)
+			gologger.Error().Msgf("Unexpected error whiling get vue routers. URL:%s, Error:%s\n", t.URL, err)
+			page = nil
 		}
 	}()
 
-	page := c.BrowserInstance.MustPage(t.URL).
+	page = c.BrowserInstance.MustPage(t.URL).
 		MustWaitLoad().
 		MustWaitDOMStable()
 
@@ -98,6 +107,10 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
 	baseURL := c.findBaseURL(page)
+	if baseURL == "" {
+		gologger.Warning().Msgf("Can not find base url for %s\n", t.URL)
+		return t, page
+	}
 	gologger.Info().Msgf("find base url for %s: %s\n", t.URL, baseURL)
 
 	// find vue path
@@ -243,9 +256,8 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item types.VueRouter
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				c.lock.Unlock()
 				gologger.Error().
-					Msgf("Access %s error: %s\n", item.URL, err)
+					Msgf("Unexpected error whiling accessing vue routers. URL:%s, Error:%s\n", item.URL, err)
 			}
 		}()
 		err := p.Timeout(10 * time.Second).
@@ -269,6 +281,13 @@ func (c *Crawler) accessRouterWithChan(ctx context.Context, item types.VueRouter
 			c.lock.Lock()
 			screenshotFolder := ctx.Value("screenshotLocation").(string)
 			screenshotLocation := filepath.Join(screenshotFolder, fmt.Sprintf("%d.png", COUNTER))
+			defer func() {
+				if e := recover(); e != nil {
+					c.lock.Unlock()
+					gologger.Error().
+						Msgf("error occur when screenshot.URL:%s, Error:%s\n", item.URL, e)
+				}
+			}()
 			// use timeout to control MustScreenshot action
 			p.MustScreenshot(screenshotLocation)
 			//gologger.Debug().Msgf("Screenshot over for url: %s\n", item.URL)
