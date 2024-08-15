@@ -132,9 +132,7 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 		if strings.Contains(path, "*") || strings.Contains(path, ":") {
 			continue
 		}
-		if strings.HasPrefix(path, "/") {
-			path = strings.TrimPrefix(path, "/")
-		}
+		path = strings.TrimPrefix(path, "/")
 		router := fmt.Sprintf("%s%s", baseURL, path)
 		tmp = append(tmp, router)
 	}
@@ -196,12 +194,8 @@ func (c *Crawler) findBaseURL(p *rod.Page) string {
 			src, exists := s.Attr("src")
 			if exists {
 				if strings.HasSuffix(src, ".js") && !strings.HasPrefix(src, "http") {
-					if strings.HasPrefix(src, "./") {
-						src = strings.TrimPrefix(src, "./")
-					}
-					if strings.HasPrefix(src, "/") {
-						src = strings.TrimPrefix(src, "/")
-					}
+					src = strings.TrimLeft(src, "./")
+					src = strings.TrimPrefix(src, "/")
 					firstScriptSrc = src
 					return
 				}
@@ -339,9 +333,7 @@ func tokenizerURL(s string) (string, string) {
 		baseURI  string
 		uriToken string
 	)
-	if strings.Contains(s, "%2F") {
-		s = strings.Replace(s, "%2F", "/", -1)
-	}
+	s = strings.Replace(s, "%2F", "/", -1)
 
 	if indexFrag := strings.IndexAny(s, "/#/"); indexFrag != -1 {
 		cleanURI = strings.Replace(s, "/#/", "/", 1)
@@ -354,13 +346,24 @@ func tokenizerURL(s string) (string, string) {
 		return "", ""
 	}
 	queries := u.Query()
-	if len(queries) > 0 && queries.Get("redirect") != "" {
-		redirect = queries.Get("redirect")
-		st := strings.Replace(s, redirect, REDIRECT, 1)
+	if len(queries) > 0 {
+		// check if the url contains redirect fields
+		// Todo maybe there are more conditions to redirect, need to find a flexible way to check and handle it
+		if queries.Get("redirect") != "" {
+			redirect = queries.Get("redirect")
+			st := strings.Replace(s, redirect, REDIRECT, 1)
 
-		index := strings.Index(st, "?")
-		baseURI = st[:index]
-		uriToken = st
+			index := strings.Index(st, "?")
+			baseURI = st[:index]
+			uriToken = st
+		}
+		if queries.Get("redirect_url") != "" {
+			redirect = queries.Get("redirect_url")
+			st := strings.Replace(s, redirect, REDIRECT, 1)
+			index := strings.Index(st, "?")
+			baseURI = st[:index]
+			uriToken = st
+		}
 	} else {
 		if index := strings.Index(s, "?"); index != -1 {
 			baseURI = s[:index]

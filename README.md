@@ -123,10 +123,23 @@ cp .env.example .env
 
 ## 参考
 
-[Packer-Fuzzer-一款针对Webpack等前端打包工具所构造的网站进行快速、高效安全检测的扫描工具
-](https://github.com/rtcatc/Packer-Fuzzer)
+[Packer-Fuzzer-一款针对Webpack等前端打包工具所构造的网站进行快速、高效安全检测的扫描工具](https://github.com/rtcatc/Packer-Fuzzer)
 
 [vueinfo-Extract info from Vue based website](https://github.com/phith0n/vueinfo)
+
+## 前端调试
+
+收集一些前端调试、解密、逆向、api参数构造等相关的渗透测试文章：
+
+[基于Vue开发的前端系统中寻找后端API及其参数](https://xz.aliyun.com/t/14686?time__1311=GqAhYKBKAIqjx05DKA4YuOODgmRoGOfeD)
+
+[基于未授权的渗透测试技巧总结](https://forum.butian.net/share/3086)
+
+[记一次前端断点调试到管理员登陆](https://forum.butian.net/share/3652)
+
+[JS逆向,前端加密暴力破解(小白无痛学习)](https://forum.butian.net/share/3647)
+
+
 
 
 **免责声明： 本工具仅供教育和授权测试目的使用。开发者及贡献者不支持、不鼓励也不赞成任何非法或未经授权的使用。 
