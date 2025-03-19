@@ -31,6 +31,9 @@ import (
 type Runner struct {
 	options *Options
 
+	// vueCheckOptions options for vue path check
+	vueCheckOptions types.VueCheckOption
+
 	// URLs
 	URLs []string
 
@@ -88,6 +91,16 @@ func NewRunner(option *Options) (*Runner, error) {
 	if option.IsVuePathCheck || option.IsCheckAll {
 		runner.crawlerEngine = headless.NewCrawler(option.IsHeadless)
 		runner.vueTaskChan = make(chan *types.Task, 30)
+
+		// Only allow to set base path for one target
+		if len(runner.URLs) == 1 {
+			basePath := option.BasePath
+			// fix basePath
+			if strings.HasSuffix(basePath, "/") {
+				basePath = basePath + "/"
+			}
+			runner.vueCheckOptions = types.VueCheckOption{BasePath: option.BasePath}
+		}
 	}
 	if option.IsEndpointCheck || option.IsCheckAll {
 		runner.endpointTaskChan = make(chan string)
@@ -165,7 +178,7 @@ func (r *Runner) Run() error {
 		}
 
 		if r.vueTaskChan != nil {
-			t := types.NewTask(u)
+			t := types.NewTask(u, r.vueCheckOptions)
 			r.vueTaskChan <- t
 		}
 	}
