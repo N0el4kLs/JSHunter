@@ -106,7 +106,12 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 	time.Sleep(2 * time.Second)
 	href := page.MustEval(c.injectionJS["href"]).Str()
 	t.IndexURL = href
-	baseURL := c.findBaseURL(page)
+	baseURL := func(basePath string) string {
+		if basePath != "" {
+			return strings.SplitAfter(href, basePath)[0]
+		}
+		return c.findBaseURL(page)
+	}(t.BasePath)
 	if baseURL == "" {
 		gologger.Warning().Msgf("Can not find base url for %s\n", t.URL)
 		return t, page

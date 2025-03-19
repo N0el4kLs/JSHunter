@@ -7,15 +7,20 @@ type Task struct {
 
 	// IndexURL index url when first visit, this field will be used for determining Broken Access
 	IndexURL string
+
 	// Subs detected urls from the target vue/javascript resource
 	Subs []string
+
+	// VueCheckOption struct to store the vue check options
+	VueCheckOption
 }
 
 // NewTask is the constructor of Task
-func NewTask(URL string) *Task {
+func NewTask(URL string, opt1 VueCheckOption) *Task {
 	return &Task{
-		URL:  URL,
-		Subs: make([]string, 0, 30),
+		URL:            URL,
+		Subs:           make([]string, 0, 30),
+		VueCheckOption: opt1,
 	}
 }
 

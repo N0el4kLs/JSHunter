@@ -27,6 +27,9 @@ type Options struct {
 	// IsVuePathCheck is a flag to check vue paths
 	IsVuePathCheck bool
 
+	// BasePath set base path for checking vue paths
+	BasePath string
+
 	// Proxy to use for the request client
 	Proxy string
 
@@ -72,6 +75,7 @@ func ParseOptions() (*Options, error) {
 		flagSet.BoolVar(&options.IsCheckAll, "ac", false, "Check both endpoints and vue paths"),
 		flagSet.BoolVar(&options.IsEndpointCheck, "ec", false, "Check for endpoints"),
 		flagSet.BoolVar(&options.IsVuePathCheck, "vc", false, "Check for vue paths"),
+		flagSet.StringVar(&options.BasePath, "bp", "", "set base path for checking vue paths"),
 		flagSet.StringVar(&options.AiSource, "ai", "",
 			"AI source to use for extracting endpoints.Only support gemini and gpt3 for now."),
 		flagSet.StringVar(&options.EnvPath, "env", ".env", "dot env file that store necessary token"),

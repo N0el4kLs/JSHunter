@@ -145,3 +145,14 @@ cp .env.example .env
 **免责声明： 本工具仅供教育和授权测试目的使用。开发者及贡献者不支持、不鼓励也不赞成任何非法或未经授权的使用。 
 用户有责任确保其使用本工具的行为符合所有适用的法律法规。严禁将本工具用于任何未经授权的活动。 
 开发者及贡献者对使用本工具造成的任何损害或后果不承担责任。使用前请自行承担风险。 通过使用本工具，您同意这些条款，并对您的行为承担全部责任。**
+
+
+## log
+
+### 2025年3月
+
+新增 bp 参数，用于设置 basePath， 常用于后端存在代理转发的情况。 比如：对于 http://example.com/base/to/path, 如果网站的baseURL为 `http://example.com/`, 
+代理服务器会根据 `/base/to` 进行转发，实际baseurl为 ` http://example.com/base/to` 的情况，那么可以通过设置 -bp 参数来指定 basePath。
+```shell
+./js-hunter -u "http://exmaple.com" -vc -bp "/base/to/"
+```
