@@ -134,6 +134,7 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 	)
 	for _, i := range rst {
 		path := i.Map()["path"].Str()
+		gologger.Debug().Msgf("find vue path: %s\n", path)
 		if strings.Contains(path, "*") || strings.Contains(path, ":") {
 			continue
 		}
