@@ -138,7 +138,16 @@ func (c *Crawler) GetAllVueRouters(t *types.Task) (*types.Task, *rod.Page) {
 			continue
 		}
 		path = strings.TrimPrefix(path, "/")
-		router := fmt.Sprintf("%s%s", baseURL, path)
+		var router string
+		if !strings.Contains(baseURL, "#") {
+			router, _ = url.JoinPath(baseURL, path)
+		} else {
+			if !strings.HasSuffix(path, "/") {
+				router = fmt.Sprintf("%s/%s", baseURL, path)
+			} else {
+				router = fmt.Sprintf("%s%s", baseURL, path)
+			}
+		}
 		tmp = append(tmp, router)
 	}
 
