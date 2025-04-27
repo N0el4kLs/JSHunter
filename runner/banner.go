@@ -2,7 +2,7 @@ package runner
 
 import "fmt"
 
-const version = "v0.5.1"
+const version = "v0.5.2"
 
 func ShowBanner() {
 	//http://www.network-science.de/ascii/  smslant
